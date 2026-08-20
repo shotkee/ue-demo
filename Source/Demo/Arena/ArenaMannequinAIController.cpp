@@ -2,6 +2,7 @@
 
 #include "ArenaMannequinAIController.h"
 
+#include "ArenaMannequinCharacter.h"
 #include "Navigation/PathFollowingComponent.h"
 
 bool AArenaMannequinAIController::MoveToArenaLocation(const FVector& Destination, const float AcceptanceRadius)
@@ -22,4 +23,16 @@ bool AArenaMannequinAIController::MoveToArenaLocation(const FVector& Destination
 void AArenaMannequinAIController::StopArenaMovement()
 {
 	StopMovement();
+}
+
+void AArenaMannequinAIController::OnMoveCompleted(
+	const FAIRequestID RequestID,
+	const FPathFollowingResult& Result)
+{
+	Super::OnMoveCompleted(RequestID, Result);
+
+	if (AArenaMannequinCharacter* Mannequin = Cast<AArenaMannequinCharacter>(GetPawn()))
+	{
+		Mannequin->NotifyArenaMovementFinished();
+	}
 }

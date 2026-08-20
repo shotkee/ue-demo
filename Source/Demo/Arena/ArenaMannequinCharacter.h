@@ -7,6 +7,15 @@
 #include "ArenaMannequinCharacter.generated.h"
 
 class UAnimMontage;
+class UTextRenderComponent;
+
+UENUM(BlueprintType)
+enum class EArenaActorState : uint8
+{
+	Idle UMETA(DisplayName = "Idle"),
+	Moving UMETA(DisplayName = "Moving"),
+	PerformingAction UMETA(DisplayName = "Performing Action")
+};
 
 UENUM(BlueprintType)
 enum class EArenaMovementMode : uint8
@@ -22,6 +31,25 @@ class DEMO_API AArenaMannequinCharacter : public ACharacter
 
 public:
 	AArenaMannequinCharacter();
+	virtual void Tick(float DeltaSeconds) override;
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Participant")
+	bool InitializeArenaParticipant(const FString& InEntityId, const FText& InDisplayName, const FVector& InSpawnLocation);
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Participant")
+	FString GetEntityId() const;
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Participant")
+	FText GetDisplayName() const;
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Participant")
+	EArenaActorState GetArenaActorState() const;
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Participant")
+	FVector GetArenaSpawnLocation() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Participant")
+	bool SetArenaDisplayName(const FText& InDisplayName);
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Movement")
 	bool MoveToArenaLocation(const FVector& Destination, EArenaMovementMode MovementMode = EArenaMovementMode::Walk);
@@ -35,7 +63,27 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Arena|Animation")
 	float PlayArenaActionMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
 
+	void NotifyArenaMovementFinished();
+
 protected:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arena|Participant")
+	TObjectPtr<UTextRenderComponent> NameLabel;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arena|Participant")
+	TArray<TObjectPtr<UTextRenderComponent>> NameLabelOutlines;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Arena|Participant")
+	FString EntityId;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Arena|Participant")
+	FText DisplayName;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Arena|Participant")
+	EArenaActorState ActorState = EArenaActorState::Idle;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Arena|Participant")
+	FVector SpawnLocation = FVector::ZeroVector;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Movement", meta = (ClampMin = "0.0", Units = "cm/s"))
 	float WalkSpeed = 200.0f;
 
@@ -44,4 +92,12 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Movement", meta = (ClampMin = "0.0", Units = "cm"))
 	float MoveAcceptanceRadius = 50.0f;
+
+private:
+	void SetArenaActorState(EArenaActorState NewState);
+
+	void HandleArenaActionMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> ActiveActionMontage;
 };

@@ -17,4 +17,7 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Movement")
 	void StopArenaMovement();
+
+protected:
+	virtual void OnMoveCompleted(FAIRequestID RequestID, const FPathFollowingResult& Result) override;
 };

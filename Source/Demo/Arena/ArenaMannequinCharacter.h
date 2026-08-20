@@ -2,12 +2,16 @@
 
 #pragma once
 
+#include "ArenaCommandTypes.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "ArenaMannequinCharacter.generated.h"
 
 class UAnimMontage;
 class UTextRenderComponent;
+class AArenaMannequinCharacter;
+
+DECLARE_MULTICAST_DELEGATE_TwoParams(FArenaMovementFinishedSignature, AArenaMannequinCharacter*, bool);
 
 UENUM(BlueprintType)
 enum class EArenaActorState : uint8
@@ -15,13 +19,6 @@ enum class EArenaActorState : uint8
 	Idle UMETA(DisplayName = "Idle"),
 	Moving UMETA(DisplayName = "Moving"),
 	PerformingAction UMETA(DisplayName = "Performing Action")
-};
-
-UENUM(BlueprintType)
-enum class EArenaMovementMode : uint8
-{
-	Walk UMETA(DisplayName = "Walk"),
-	Run UMETA(DisplayName = "Run")
 };
 
 UCLASS(Blueprintable)
@@ -63,7 +60,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Arena|Animation")
 	float PlayArenaActionMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
 
-	void NotifyArenaMovementFinished();
+	void NotifyArenaMovementFinished(bool bSucceeded);
+
+	FArenaMovementFinishedSignature OnArenaMovementFinished;
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arena|Participant")

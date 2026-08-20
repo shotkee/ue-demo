@@ -33,6 +33,6 @@ void AArenaMannequinAIController::OnMoveCompleted(
 
 	if (AArenaMannequinCharacter* Mannequin = Cast<AArenaMannequinCharacter>(GetPawn()))
 	{
-		Mannequin->NotifyArenaMovementFinished();
+		Mannequin->NotifyArenaMovementFinished(Result.IsSuccess());
 	}
 }

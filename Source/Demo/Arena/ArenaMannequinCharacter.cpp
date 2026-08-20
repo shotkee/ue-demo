@@ -189,15 +189,13 @@ bool AArenaMannequinCharacter::MoveToArenaLocation(const FVector& Destination, c
 	AArenaMannequinAIController* ArenaController = Cast<AArenaMannequinAIController>(GetController());
 	if (!IsValid(ArenaController))
 	{
+		SetArenaActorState(EArenaActorState::Idle);
 		return false;
 	}
 
+	SetArenaActorState(EArenaActorState::Moving);
 	const bool bMoveAccepted = ArenaController->MoveToArenaLocation(Destination, MoveAcceptanceRadius);
-	if (bMoveAccepted && FVector::DistSquared2D(GetActorLocation(), Destination) > FMath::Square(MoveAcceptanceRadius))
-	{
-		SetArenaActorState(EArenaActorState::Moving);
-	}
-	else
+	if (!bMoveAccepted && ActorState == EArenaActorState::Moving)
 	{
 		SetArenaActorState(EArenaActorState::Idle);
 	}
@@ -251,12 +249,14 @@ float AArenaMannequinCharacter::PlayArenaActionMontage(UAnimMontage* Montage, co
 	return Duration;
 }
 
-void AArenaMannequinCharacter::NotifyArenaMovementFinished()
+void AArenaMannequinCharacter::NotifyArenaMovementFinished(const bool bSucceeded)
 {
 	if (ActorState == EArenaActorState::Moving)
 	{
 		SetArenaActorState(EArenaActorState::Idle);
 	}
+
+	OnArenaMovementFinished.Broadcast(this, bSucceeded);
 }
 
 void AArenaMannequinCharacter::SetArenaActorState(const EArenaActorState NewState)

@@ -18,14 +18,67 @@
 
 Проверенная конфигурация Windows и подробная инструкция по установке находятся в [how_to_install_toolchain.md](how_to_install_toolchain.md).
 
-## Первый запуск
+## Развёртывание проекта из чистого клона
 
-1. Клонируйте репозиторий в локальную папку.
-2. Установите Unreal Engine 5.8.1 и C++-инструменты для своей платформы.
-3. Откройте `Demo.uproject`.
-4. Если Unreal Engine предложит пересобрать отсутствующий модуль `Demo`, подтвердите пересборку.
+Ниже приведена проверенная процедура для Windows. Она не требует открытия `.sln` и установки полной Visual Studio, если уже установлены Visual Studio Build Tools с MSVC и Windows SDK.
 
-При первом запуске Unreal Engine автоматически создаст локальные каталоги `Binaries`, `DerivedDataCache`, `Intermediate` и `Saved`. Они не входят в репозиторий.
+### 1. Клонирование репозитория
+
+Откройте PowerShell, перейдите в каталог, где должен находиться проект, и выполните:
+
+```powershell
+git clone https://github.com/shotkee/ue-demo.git
+Set-Location .\ue-demo
+git status
+```
+
+Для приватного репозитория GitHub может запросить авторизацию через Git Credential Manager. После клонирования `git status` должен сообщать, что рабочая папка чистая.
+
+Не размещайте новый клон внутри другого клона этого проекта.
+
+### 2. Проверка инструментов
+
+Убедитесь, что установлены:
+
+- Unreal Engine 5.8.1;
+- Visual Studio Build Tools 2022 с компонентами MSVC и Windows SDK;
+- Git for Windows.
+
+Подробная конфигурация Build Tools приведена в [how_to_install_toolchain.md](how_to_install_toolchain.md).
+
+### 3. Сборка редактора проекта
+
+Находясь в корне проекта, выполните команду из раздела [Сборка из PowerShell в Windows](#сборка-из-powershell-в-windows). Сборка должна завершиться сообщением `Result: Succeeded`.
+
+### 4. Первый запуск
+
+Откройте `Demo.uproject`. Если Windows попросит выбрать программу, укажите установленный Unreal Editor 5.8.1. Стартовая карта `/Game/Arena/Maps/Arena` должна открыться автоматически.
+
+При первом запуске Unreal Engine создаст локальные каталоги `Binaries`, `DerivedDataCache`, `Intermediate` и `Saved`, а также подготовит шейдеры. Эти каталоги не входят в репозиторий; их появление не должно изменять `git status`.
+
+### 5. Проверка карты
+
+На карте `Arena` нажмите `Play` и убедитесь, что:
+
+- камера начинает с обзорного ракурса всей арены и допускает свободное перемещение;
+- панель `Arena Command Panel` появляется в свёрнутом состоянии;
+- локальные команды создания, движения, действия, остановки и удаления манекена выполняются без ошибок.
+
+### 6. Проверка WebSocket
+
+Остановите Play. В PowerShell из корня проекта запустите тестовый сервер:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Tools\WebSocketTestServer\RunArenaWebSocketTestServer.ps1 -Scenario Smoke
+```
+
+После сообщения `listening` снова нажмите `Play`. Панель должна показать `WS: Connected`, тестовый манекен должен появиться и выполнить команду движения, а сервер — вывести:
+
+```text
+WebSocket smoke test completed successfully.
+```
+
+Остановите Play и сервер сочетанием `Ctrl+C`. После проверки команда `git status --short` не должна показывать изменений отслеживаемых файлов.
 
 ## Сборка из PowerShell в Windows
 

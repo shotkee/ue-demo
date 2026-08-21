@@ -4,10 +4,12 @@
 
 #include "ArenaInteractable.h"
 #include "ArenaMannequinCharacter.h"
+#include "Animation/AnimMontage.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
+#include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogArenaParticipants, Log, All);
 DEFINE_LOG_CATEGORY_STATIC(LogArenaCommands, Log, All);
@@ -15,6 +17,18 @@ DEFINE_LOG_CATEGORY_STATIC(LogArenaCommands, Log, All);
 AArenaParticipantManager::AArenaParticipantManager()
 {
 	PrimaryActorTick.bCanEverTick = false;
+
+	FArenaActionDefinition PunchAction;
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> PunchMontage(
+		TEXT("/Game/Arena/Animations/AM_ArenaAttack.AM_ArenaAttack"));
+	if (PunchMontage.Succeeded())
+	{
+		PunchAction.Montage = PunchMontage.Object;
+	}
+	PunchAction.PlayRate = 1.0f;
+	PunchAction.bStopMovementBeforeAction = true;
+	PunchAction.bRequiresTarget = true;
+	ActionRegistry.Add(FName(TEXT("punch")), PunchAction);
 }
 
 void AArenaParticipantManager::BeginPlay()
@@ -87,6 +101,12 @@ AArenaMannequinCharacter* AArenaParticipantManager::SpawnParticipant(
 	Participant->OnArenaMovementFinished.AddUObject(
 		this,
 		&AArenaParticipantManager::HandleParticipantMovementFinished);
+	Participant->OnArenaActionFinished.AddUObject(
+		this,
+		&AArenaParticipantManager::HandleParticipantActionFinished);
+	Participant->OnArenaActionEvent.AddUObject(
+		this,
+		&AArenaParticipantManager::HandleParticipantActionEvent);
 	Participant->OnDestroyed.AddDynamic(this, &AArenaParticipantManager::HandleParticipantDestroyed);
 	return Participant;
 }
@@ -131,6 +151,7 @@ FArenaCommandResult AArenaParticipantManager::SubmitArenaCommand(const FArenaCom
 	Command.ActorId = NormalizeEntityId(Command.ActorId);
 	Command.TargetId = NormalizeNameId(Command.TargetId);
 	Command.InteractionPointId = NormalizeNameId(Command.InteractionPointId);
+	Command.ActionId = NormalizeNameId(Command.ActionId);
 	if (Command.CommandType == EArenaCommandType::ApproachObject && Command.InteractionPointId.IsNone())
 	{
 		Command.InteractionPointId = FName(TEXT("default"));
@@ -231,6 +252,38 @@ FArenaCommandResult AArenaParticipantManager::SubmitArenaCommand(const FArenaCom
 				TEXT("Arena object or interaction point was not found."));
 		}
 	}
+	else if (Command.CommandType == EArenaCommandType::PlayAction)
+	{
+		const FArenaActionDefinition* ActionDefinition = FindActionDefinition(Command.ActionId);
+		if (ActionDefinition == nullptr)
+		{
+			return RejectCommand(
+				Command,
+				EArenaCommandError::UnknownAction,
+				TEXT("ActionId is not registered."));
+		}
+
+		if (!IsValid(ActionDefinition->Montage) || ActionDefinition->PlayRate <= 0.0f)
+		{
+			return RejectCommand(
+				Command,
+				EArenaCommandError::ActionUnavailable,
+				TEXT("The registered action has no playable montage."));
+		}
+
+		AActor* ActionTarget = nullptr;
+		EArenaCommandError TargetError = EArenaCommandError::None;
+		FString TargetMessage;
+		if (!TryResolveActionTarget(
+			Command,
+			*ActionDefinition,
+			ActionTarget,
+			TargetError,
+			TargetMessage))
+		{
+			return RejectCommand(Command, TargetError, TargetMessage);
+		}
+	}
 
 	FArenaParticipantCommandQueue& Queue = CommandQueues.FindOrAdd(Command.ActorId);
 	if (Queue.PendingCommands.Num() >= FMath::Max(1, MaximumQueuedCommandsPerParticipant))
@@ -313,6 +366,24 @@ FArenaCommandResult AArenaParticipantManager::SubmitApproachObjectCommand(
 	Command.TargetId = ObjectId;
 	Command.InteractionPointId = InteractionPointId;
 	Command.MovementMode = MovementMode;
+	return SubmitArenaCommand(Command);
+}
+
+FArenaCommandResult AArenaParticipantManager::SubmitPlayActionCommand(
+	const FString& RequestId,
+	const FString& EntityId,
+	const FName ActionId,
+	const EArenaActionTargetType TargetType,
+	const FName TargetId)
+{
+	FArenaCommand Command;
+	Command.Version = SupportedProtocolVersion;
+	Command.RequestId = RequestId;
+	Command.ActorId = EntityId;
+	Command.CommandType = EArenaCommandType::PlayAction;
+	Command.ActionId = ActionId;
+	Command.ActionTargetType = TargetType;
+	Command.TargetId = TargetId;
 	return SubmitArenaCommand(Command);
 }
 
@@ -414,6 +485,19 @@ int32 AArenaParticipantManager::GetArenaObjectCount() const
 	return ArenaObjects.Num();
 }
 
+TArray<FName> AArenaParticipantManager::GetRegisteredActionIds() const
+{
+	TArray<FName> ActionIds;
+	ActionRegistry.GetKeys(ActionIds);
+	ActionIds.Sort(FNameLexicalLess());
+	return ActionIds;
+}
+
+bool AArenaParticipantManager::IsActionRegistered(const FName ActionId) const
+{
+	return FindActionDefinition(ActionId) != nullptr;
+}
+
 FArenaCommandResult AArenaParticipantManager::RejectCommand(
 	const FArenaCommand& Command,
 	const EArenaCommandError ErrorCode,
@@ -471,6 +555,7 @@ FArenaCommandResult AArenaParticipantManager::ProcessStopCommand(
 		TEXT("Command was cancelled by a priority stop command."));
 	RecordCommandState(Command, EArenaCommandStatus::Started);
 	Participant->StopArenaMovement();
+	Participant->StopArenaActionMontage();
 	RecordCommandState(Command, EArenaCommandStatus::Completed);
 
 	return MakeCommandResult(
@@ -609,6 +694,58 @@ void AArenaParticipantManager::ExecuteActiveCommand(
 		return;
 	}
 
+	case EArenaCommandType::PlayAction:
+	{
+		const FArenaActionDefinition* ActionDefinition = FindActionDefinition(Command.ActionId);
+		if (ActionDefinition == nullptr || !IsValid(ActionDefinition->Montage))
+		{
+			FinishActiveCommand(
+				EntityId,
+				EArenaCommandStatus::Failed,
+				EArenaCommandError::ActionUnavailable,
+				TEXT("The action disappeared from the registry before execution."));
+			return;
+		}
+
+		AActor* ActionTarget = nullptr;
+		EArenaCommandError TargetError = EArenaCommandError::None;
+		FString TargetMessage;
+		if (!TryResolveActionTarget(
+			Command,
+			*ActionDefinition,
+			ActionTarget,
+			TargetError,
+			TargetMessage))
+		{
+			FinishActiveCommand(
+				EntityId,
+				EArenaCommandStatus::Failed,
+				TargetError,
+				TargetMessage);
+			return;
+		}
+
+		if (IsValid(ActionTarget))
+		{
+			Participant->FaceArenaTarget(ActionTarget);
+		}
+
+		if (Participant->StartArenaActionMontage(
+			ActionDefinition->Montage,
+			ActionDefinition->PlayRate,
+			ActionDefinition->bStopMovementBeforeAction) <= 0.0f)
+		{
+			FinishActiveCommand(
+				EntityId,
+				EArenaCommandStatus::Failed,
+				EArenaCommandError::ActionUnavailable,
+				TEXT("The action montage could not be started."));
+			return;
+		}
+
+		return;
+	}
+
 	case EArenaCommandType::Leave:
 	{
 		Queue->bHasActiveCommand = false;
@@ -622,7 +759,6 @@ void AArenaParticipantManager::ExecuteActiveCommand(
 		return;
 	}
 
-	case EArenaCommandType::PlayAction:
 	case EArenaCommandType::Spawn:
 	case EArenaCommandType::Stop:
 	default:
@@ -691,9 +827,12 @@ bool AArenaParticipantManager::DestroyRegisteredParticipant(
 
 	Participant->OnDestroyed.RemoveDynamic(this, &AArenaParticipantManager::HandleParticipantDestroyed);
 	Participant->OnArenaMovementFinished.RemoveAll(this);
+	Participant->OnArenaActionFinished.RemoveAll(this);
+	Participant->OnArenaActionEvent.RemoveAll(this);
 	Participants.Remove(EntityId);
 	CommandQueues.Remove(EntityId);
 	Participant->StopArenaMovement();
+	Participant->StopArenaActionMontage();
 	return Participant->Destroy();
 }
 
@@ -913,6 +1052,95 @@ bool AArenaParticipantManager::TryProjectInteractionPointToNavigation(
 	return true;
 }
 
+const FArenaActionDefinition* AArenaParticipantManager::FindActionDefinition(const FName ActionId) const
+{
+	return ActionRegistry.Find(NormalizeNameId(ActionId));
+}
+
+bool AArenaParticipantManager::TryResolveActionTarget(
+	const FArenaCommand& Command,
+	const FArenaActionDefinition& ActionDefinition,
+	AActor*& OutTarget,
+	EArenaCommandError& OutError,
+	FString& OutMessage) const
+{
+	OutTarget = nullptr;
+	OutError = EArenaCommandError::None;
+	OutMessage.Reset();
+
+	if (Command.ActionTargetType == EArenaActionTargetType::None)
+	{
+		if (ActionDefinition.bRequiresTarget)
+		{
+			OutError = EArenaCommandError::InvalidRequest;
+			OutMessage = TEXT("This action requires a target.");
+			return false;
+		}
+		return true;
+	}
+
+	if (Command.TargetId.IsNone())
+	{
+		OutError = EArenaCommandError::InvalidRequest;
+		OutMessage = TEXT("TargetId is required for the selected action target type.");
+		return false;
+	}
+
+	switch (Command.ActionTargetType)
+	{
+	case EArenaActionTargetType::Participant:
+	{
+		AArenaMannequinCharacter* TargetParticipant = FindParticipant(Command.TargetId.ToString());
+		if (!IsValid(TargetParticipant))
+		{
+			OutError = EArenaCommandError::UnknownTarget;
+			OutMessage = TEXT("Action target participant was not found.");
+			return false;
+		}
+
+		if (TargetParticipant == FindParticipant(Command.ActorId))
+		{
+			OutError = EArenaCommandError::InvalidRequest;
+			OutMessage = TEXT("A participant cannot target itself with this action.");
+			return false;
+		}
+
+		OutTarget = TargetParticipant;
+		return true;
+	}
+
+	case EArenaActionTargetType::ArenaObject:
+	{
+		AActor* TargetObject = FindArenaObject(Command.TargetId);
+		if (!IsValid(TargetObject)
+			|| !TargetObject->GetClass()->ImplementsInterface(UArenaInteractable::StaticClass()))
+		{
+			OutError = EArenaCommandError::UnknownTarget;
+			OutMessage = TEXT("Action target arena object was not found.");
+			return false;
+		}
+
+		const TArray<FName> AllowedActions =
+			IArenaInteractable::Execute_GetArenaAllowedActions(TargetObject);
+		if (!AllowedActions.Contains(Command.ActionId))
+		{
+			OutError = EArenaCommandError::ActionNotAllowed;
+			OutMessage = TEXT("The arena object does not allow this action.");
+			return false;
+		}
+
+		OutTarget = TargetObject;
+		return true;
+	}
+
+	case EArenaActionTargetType::None:
+	default:
+		OutError = EArenaCommandError::InvalidRequest;
+		OutMessage = TEXT("Unsupported action target type.");
+		return false;
+	}
+}
+
 void AArenaParticipantManager::HandleParticipantMovementFinished(
 	AArenaMannequinCharacter* Participant,
 	const bool bSucceeded)
@@ -999,6 +1227,66 @@ void AArenaParticipantManager::HandleParticipantMovementFinished(
 	default:
 		return;
 	}
+}
+
+void AArenaParticipantManager::HandleParticipantActionFinished(
+	AArenaMannequinCharacter* Participant,
+	UAnimMontage* Montage,
+	const bool bInterrupted)
+{
+	if (!IsValid(Participant) || !IsValid(Montage))
+	{
+		return;
+	}
+
+	const FString EntityId = Participant->GetEntityId();
+	const FArenaParticipantCommandQueue* Queue = CommandQueues.Find(EntityId);
+	if (Queue == nullptr
+		|| !Queue->bHasActiveCommand
+		|| Queue->ActiveCommand.CommandType != EArenaCommandType::PlayAction)
+	{
+		return;
+	}
+
+	const FArenaActionDefinition* ActionDefinition =
+		FindActionDefinition(Queue->ActiveCommand.ActionId);
+	if (ActionDefinition == nullptr || ActionDefinition->Montage != Montage)
+	{
+		return;
+	}
+
+	FinishActiveCommand(
+		EntityId,
+		bInterrupted ? EArenaCommandStatus::Failed : EArenaCommandStatus::Completed,
+		bInterrupted ? EArenaCommandError::ActionInterrupted : EArenaCommandError::None,
+		bInterrupted
+			? TEXT("The action montage was interrupted before completion.")
+			: TEXT("The action montage completed."));
+}
+
+void AArenaParticipantManager::HandleParticipantActionEvent(
+	AArenaMannequinCharacter* Participant,
+	const FName EventId)
+{
+	if (!IsValid(Participant) || EventId.IsNone())
+	{
+		return;
+	}
+
+	const FArenaParticipantCommandQueue* Queue = CommandQueues.Find(Participant->GetEntityId());
+	const FString RequestId = Queue != nullptr
+		&& Queue->bHasActiveCommand
+		&& Queue->ActiveCommand.CommandType == EArenaCommandType::PlayAction
+		? Queue->ActiveCommand.RequestId
+		: FString();
+
+	UE_LOG(
+		LogArenaCommands,
+		Log,
+		TEXT("ActionEvent Request='%s' Actor='%s' Event='%s'"),
+		*RequestId,
+		*Participant->GetEntityId(),
+		*EventId.ToString());
 }
 
 void AArenaParticipantManager::HandleParticipantDestroyed(AActor* DestroyedActor)

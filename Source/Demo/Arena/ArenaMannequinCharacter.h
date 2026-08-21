@@ -12,6 +12,12 @@ class UTextRenderComponent;
 class AArenaMannequinCharacter;
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FArenaMovementFinishedSignature, AArenaMannequinCharacter*, bool);
+DECLARE_MULTICAST_DELEGATE_ThreeParams(
+	FArenaActionFinishedSignature,
+	AArenaMannequinCharacter*,
+	UAnimMontage*,
+	bool);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FArenaActionEventSignature, AArenaMannequinCharacter*, FName);
 
 UENUM(BlueprintType)
 enum class EArenaActorState : uint8
@@ -66,9 +72,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Arena|Animation")
 	float PlayArenaActionMontage(UAnimMontage* Montage, float PlayRate = 1.0f);
 
+	float StartArenaActionMontage(
+		UAnimMontage* Montage,
+		float PlayRate,
+		bool bStopMovementBeforeAction);
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Animation")
+	void StopArenaActionMontage(float BlendOutTime = 0.1f);
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Animation")
+	void NotifyArenaActionEvent(FName EventId);
+
 	void NotifyArenaMovementFinished(bool bSucceeded);
 
 	FArenaMovementFinishedSignature OnArenaMovementFinished;
+	FArenaActionFinishedSignature OnArenaActionFinished;
+	FArenaActionEventSignature OnArenaActionEvent;
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arena|Participant")

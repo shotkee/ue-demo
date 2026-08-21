@@ -2,12 +2,14 @@
 
 #pragma once
 
+#include "ArenaActionTypes.h"
 #include "ArenaCommandTypes.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "ArenaParticipantManager.generated.h"
 
 class AArenaMannequinCharacter;
+class UAnimMontage;
 
 USTRUCT()
 struct FArenaParticipantCommandQueue
@@ -81,6 +83,14 @@ public:
 		EArenaMovementMode MovementMode = EArenaMovementMode::Walk);
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
+	FArenaCommandResult SubmitPlayActionCommand(
+		const FString& RequestId,
+		const FString& EntityId,
+		FName ActionId,
+		EArenaActionTargetType TargetType,
+		FName TargetId);
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
 	FArenaCommandResult SubmitStopCommand(const FString& RequestId, const FString& EntityId);
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
@@ -106,6 +116,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Arena|Objects")
 	int32 GetArenaObjectCount() const;
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Actions")
+	TArray<FName> GetRegisteredActionIds() const;
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Actions")
+	bool IsActionRegistered(FName ActionId) const;
 
 	UPROPERTY(BlueprintAssignable, Category = "Arena|Commands")
 	FArenaCommandStatusChangedSignature OnCommandStatusChanged;
@@ -146,6 +162,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Objects", meta = (Units = "cm"))
 	FVector InteractionPointProjectionExtent = FVector(100.0f, 100.0f, 250.0f);
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Actions")
+	TMap<FName, FArenaActionDefinition> ActionRegistry;
+
 private:
 	static constexpr int32 SupportedProtocolVersion = 1;
 
@@ -159,6 +178,13 @@ private:
 	bool TryProjectInteractionPointToNavigation(
 		const FVector& InteractionPoint,
 		FVector& OutNavigationLocation) const;
+	const FArenaActionDefinition* FindActionDefinition(FName ActionId) const;
+	bool TryResolveActionTarget(
+		const FArenaCommand& Command,
+		const FArenaActionDefinition& ActionDefinition,
+		AActor*& OutTarget,
+		EArenaCommandError& OutError,
+		FString& OutMessage) const;
 	static FString NormalizeEntityId(const FString& EntityId);
 	static FString NormalizeRequestId(const FString& RequestId);
 	static FName NormalizeNameId(FName NameId);
@@ -193,6 +219,11 @@ private:
 		const FString& Message);
 
 	void HandleParticipantMovementFinished(AArenaMannequinCharacter* Participant, bool bSucceeded);
+	void HandleParticipantActionFinished(
+		AArenaMannequinCharacter* Participant,
+		UAnimMontage* Montage,
+		bool bInterrupted);
+	void HandleParticipantActionEvent(AArenaMannequinCharacter* Participant, FName EventId);
 
 	UFUNCTION()
 	void HandleParticipantDestroyed(AActor* DestroyedActor);

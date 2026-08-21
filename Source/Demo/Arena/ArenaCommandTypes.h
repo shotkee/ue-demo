@@ -13,6 +13,14 @@ enum class EArenaMovementMode : uint8
 };
 
 UENUM(BlueprintType)
+enum class EArenaActionTargetType : uint8
+{
+	None UMETA(DisplayName = "None"),
+	Participant UMETA(DisplayName = "Participant"),
+	ArenaObject UMETA(DisplayName = "Arena Object")
+};
+
+UENUM(BlueprintType)
 enum class EArenaCommandType : uint8
 {
 	Spawn UMETA(DisplayName = "Spawn"),
@@ -46,6 +54,10 @@ enum class EArenaCommandError : uint8
 	DuplicateParticipant UMETA(DisplayName = "Duplicate Participant"),
 	UnknownParticipant UMETA(DisplayName = "Unknown Participant"),
 	UnknownTarget UMETA(DisplayName = "Unknown Target"),
+	UnknownAction UMETA(DisplayName = "Unknown Action"),
+	ActionNotAllowed UMETA(DisplayName = "Action Not Allowed"),
+	ActionUnavailable UMETA(DisplayName = "Action Unavailable"),
+	ActionInterrupted UMETA(DisplayName = "Action Interrupted"),
 	UnreachableTarget UMETA(DisplayName = "Unreachable Target"),
 	QueueFull UMETA(DisplayName = "Queue Full"),
 	UnsupportedCommand UMETA(DisplayName = "Unsupported Command"),
@@ -79,6 +91,9 @@ struct DEMO_API FArenaCommand
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Command")
 	FName ActionId = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Command")
+	EArenaActionTargetType ActionTargetType = EArenaActionTargetType::None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Command")
 	EArenaMovementMode MovementMode = EArenaMovementMode::Walk;

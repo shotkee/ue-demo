@@ -274,12 +274,35 @@ void AArenaMannequinCharacter::StopArenaMovement()
 
 float AArenaMannequinCharacter::PlayArenaActionMontage(UAnimMontage* Montage, const float PlayRate)
 {
+	return StartArenaActionMontage(Montage, PlayRate, true);
+}
+
+float AArenaMannequinCharacter::StartArenaActionMontage(
+	UAnimMontage* Montage,
+	const float PlayRate,
+	const bool bStopMovementBeforeAction)
+{
 	if (!IsValid(Montage) || PlayRate <= 0.0f)
 	{
 		return 0.0f;
 	}
 
-	StopArenaMovement();
+	if (IsValid(ActiveActionMontage))
+	{
+		return 0.0f;
+	}
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (!IsValid(AnimInstance))
+	{
+		return 0.0f;
+	}
+
+	if (bStopMovementBeforeAction)
+	{
+		StopArenaMovement();
+	}
+
 	const float Duration = PlayAnimMontage(Montage, PlayRate);
 	if (Duration <= 0.0f)
 	{
@@ -289,14 +312,39 @@ float AArenaMannequinCharacter::PlayArenaActionMontage(UAnimMontage* Montage, co
 	ActiveActionMontage = Montage;
 	SetArenaActorState(EArenaActorState::PerformingAction);
 
-	if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
-	{
-		FOnMontageEnded EndDelegate;
-		EndDelegate.BindUObject(this, &AArenaMannequinCharacter::HandleArenaActionMontageEnded);
-		AnimInstance->Montage_SetEndDelegate(EndDelegate, Montage);
-	}
+	FOnMontageEnded EndDelegate;
+	EndDelegate.BindUObject(this, &AArenaMannequinCharacter::HandleArenaActionMontageEnded);
+	AnimInstance->Montage_SetEndDelegate(EndDelegate, Montage);
 
 	return Duration;
+}
+
+void AArenaMannequinCharacter::StopArenaActionMontage(const float BlendOutTime)
+{
+	UAnimMontage* MontageToStop = ActiveActionMontage.Get();
+	if (!IsValid(MontageToStop))
+	{
+		return;
+	}
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+	if (IsValid(AnimInstance) && AnimInstance->Montage_IsActive(MontageToStop))
+	{
+		AnimInstance->Montage_Stop(FMath::Max(0.0f, BlendOutTime), MontageToStop);
+		return;
+	}
+
+	ActiveActionMontage = nullptr;
+	SetArenaActorState(EArenaActorState::Idle);
+	OnArenaActionFinished.Broadcast(this, MontageToStop, true);
+}
+
+void AArenaMannequinCharacter::NotifyArenaActionEvent(const FName EventId)
+{
+	if (!EventId.IsNone() && IsValid(ActiveActionMontage))
+	{
+		OnArenaActionEvent.Broadcast(this, EventId);
+	}
 }
 
 void AArenaMannequinCharacter::NotifyArenaMovementFinished(const bool bSucceeded)
@@ -323,4 +371,5 @@ void AArenaMannequinCharacter::HandleArenaActionMontageEnded(UAnimMontage* Monta
 
 	ActiveActionMontage = nullptr;
 	SetArenaActorState(EArenaActorState::Idle);
+	OnArenaActionFinished.Broadcast(this, Montage, bInterrupted);
 }

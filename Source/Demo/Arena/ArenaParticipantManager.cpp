@@ -2,6 +2,7 @@
 
 #include "ArenaParticipantManager.h"
 
+#include "ArenaCommandJsonProtocol.h"
 #include "ArenaCommandPanelWidget.h"
 #include "ArenaInteractable.h"
 #include "ArenaMannequinCharacter.h"
@@ -346,6 +347,41 @@ FArenaCommandResult AArenaParticipantManager::SubmitArenaCommand(const FArenaCom
 		EArenaCommandStatus::Accepted,
 		EArenaCommandError::None,
 		TEXT("Command was accepted."));
+}
+
+FString AArenaParticipantManager::SubmitArenaJsonCommand(const FString& JsonMessage)
+{
+	FArenaCommand Command;
+	EArenaCommandError ParseError = EArenaCommandError::None;
+	FString ParseMessage;
+	if (!FArenaCommandJsonProtocol::TryParseCommand(
+		JsonMessage,
+		Command,
+		ParseError,
+		ParseMessage))
+	{
+		if (!Command.RequestId.IsEmpty())
+		{
+			RecordCommandState(
+				Command,
+				EArenaCommandStatus::Rejected,
+				ParseError,
+				ParseMessage);
+		}
+
+		return FArenaCommandJsonProtocol::SerializeResult(
+			Command.RequestId,
+			EArenaCommandStatus::Rejected,
+			ParseError,
+			ParseMessage);
+	}
+
+	const FArenaCommandResult Result = SubmitArenaCommand(Command);
+	return FArenaCommandJsonProtocol::SerializeResult(
+		Command.RequestId,
+		Result.Status,
+		Result.ErrorCode,
+		Result.Message);
 }
 
 FArenaCommandResult AArenaParticipantManager::SubmitSpawnCommand(
@@ -930,6 +966,8 @@ void AArenaParticipantManager::RecordCommandState(
 	}
 	CommandHistory.Add(StateRecord);
 	OnCommandStatusChanged.Broadcast(StateRecord);
+	OnJsonCommandResponse.Broadcast(
+		FArenaCommandJsonProtocol::SerializeCommandState(StateRecord));
 
 	const UEnum* CommandTypeEnum = StaticEnum<EArenaCommandType>();
 	const UEnum* StatusEnum = StaticEnum<EArenaCommandStatus>();

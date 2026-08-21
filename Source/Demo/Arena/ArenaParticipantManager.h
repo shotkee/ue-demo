@@ -32,6 +32,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
 	FArenaCommandStateRecord,
 	StateRecord);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+	FArenaJsonCommandResponseSignature,
+	FString,
+	JsonResponse);
+
 UCLASS(Blueprintable)
 class DEMO_API AArenaParticipantManager : public AActor
 {
@@ -60,6 +65,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
 	FArenaCommandResult SubmitArenaCommand(const FArenaCommand& Command);
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
+	FString SubmitArenaJsonCommand(const FString& JsonMessage);
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
 	FArenaCommandResult SubmitSpawnCommand(const FString& RequestId, const FString& EntityId, const FText& DisplayName);
@@ -135,6 +143,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Arena|Commands")
 	FArenaCommandStatusChangedSignature OnCommandStatusChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Arena|Commands")
+	FArenaJsonCommandResponseSignature OnJsonCommandResponse;
 
 protected:
 	virtual void BeginPlay() override;

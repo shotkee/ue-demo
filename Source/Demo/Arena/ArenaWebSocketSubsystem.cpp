@@ -237,6 +237,19 @@ void UArenaWebSocketSubsystem::ProcessIncomingMessage(const FString& Message)
 		ParseError,
 		ParseMessage))
 	{
+		const FString RequestLabel = Command.RequestId.IsEmpty()
+			? FString(TEXT("<unavailable>"))
+			: Command.RequestId;
+		const FString ErrorName = StaticEnum<EArenaCommandError>()->GetNameStringByValue(
+			static_cast<int64>(ParseError));
+		UE_LOG(
+			LogArenaWebSocket,
+			Warning,
+			TEXT("Rejected incoming message: Request='%s' Error=%s Message='%s' PayloadCharacters=%d"),
+			*RequestLabel,
+			*ErrorName,
+			*ParseMessage,
+			Message.Len());
 		SendTextMessage(
 			FArenaCommandJsonProtocol::SerializeResult(
 				Command.RequestId,
@@ -249,12 +262,20 @@ void UArenaWebSocketSubsystem::ProcessIncomingMessage(const FString& Message)
 	AArenaParticipantManager* ParticipantManager = ResolveParticipantManager();
 	if (!IsValid(ParticipantManager))
 	{
+		const FString FailureMessage = TEXT("Arena participant manager is not available.");
+		UE_LOG(
+			LogArenaWebSocket,
+			Error,
+			TEXT("Failed to dispatch incoming command: Request='%s' Actor='%s' Error=ExecutionFailed Message='%s'"),
+			*Command.RequestId,
+			*Command.ActorId,
+			*FailureMessage);
 		SendTextMessage(
 			FArenaCommandJsonProtocol::SerializeResult(
 				Command.RequestId,
 				EArenaCommandStatus::Failed,
 				EArenaCommandError::ExecutionFailed,
-				TEXT("Arena participant manager is not available.")));
+				FailureMessage));
 		return;
 	}
 

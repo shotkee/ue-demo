@@ -923,6 +923,58 @@ void AArenaParticipantManager::CancelParticipantCommands(
 	Queue->PendingCommands.Reset();
 }
 
+void AArenaParticipantManager::AbortCommandsTargetingParticipant(
+	const FString& RemovedEntityId)
+{
+	TArray<FString> ParticipantIds;
+	Participants.GetKeys(ParticipantIds);
+	for (const FString& ParticipantId : ParticipantIds)
+	{
+		FArenaParticipantCommandQueue* Queue = CommandQueues.Find(ParticipantId);
+		if (Queue == nullptr
+			|| !Queue->bHasActiveCommand
+			|| Queue->ActiveCommand.CommandType != EArenaCommandType::MoveToActor
+			|| NormalizeEntityId(Queue->ActiveCommand.TargetId.ToString()) != RemovedEntityId)
+		{
+			continue;
+		}
+
+		AArenaMannequinCharacter* Participant = FindParticipant(ParticipantId);
+		const FArenaCommand FailedCommand = Queue->ActiveCommand;
+		TArray<FArenaCommand> CancelledCommands = MoveTemp(Queue->PendingCommands);
+		Queue->ActiveCommand = FArenaCommand();
+		Queue->bHasActiveCommand = false;
+		Queue->PendingCommands.Reset();
+
+		RecordCommandState(
+			FailedCommand,
+			EArenaCommandStatus::Failed,
+			EArenaCommandError::UnknownTarget,
+			TEXT("Target participant was removed during movement."));
+		for (const FArenaCommand& CancelledCommand : CancelledCommands)
+		{
+			RecordCommandState(
+				CancelledCommand,
+				EArenaCommandStatus::Cancelled,
+				EArenaCommandError::UnknownTarget,
+				TEXT("Command was cancelled because the active movement target was removed."));
+		}
+
+		if (IsValid(Participant))
+		{
+			Participant->StopArenaMovement();
+		}
+
+		UE_LOG(
+			LogArenaCommands,
+			Warning,
+			TEXT("Participant '%s' stopped because target '%s' was removed; cancelled %d pending command(s)."),
+			*ParticipantId,
+			*RemovedEntityId,
+			CancelledCommands.Num());
+	}
+}
+
 bool AArenaParticipantManager::DestroyRegisteredParticipant(
 	const FString& EntityId,
 	AArenaMannequinCharacter* Participant)
@@ -937,6 +989,7 @@ bool AArenaParticipantManager::DestroyRegisteredParticipant(
 	Participant->OnArenaActionFinished.RemoveAll(this);
 	Participant->OnArenaActionEvent.RemoveAll(this);
 	Participants.Remove(EntityId);
+	AbortCommandsTargetingParticipant(EntityId);
 	CommandQueues.Remove(EntityId);
 	Participant->StopArenaMovement();
 	Participant->StopArenaActionMontage();
@@ -1421,6 +1474,7 @@ void AArenaParticipantManager::HandleParticipantDestroyed(AActor* DestroyedActor
 		TEXT("Command was cancelled because the participant was destroyed."));
 	CommandQueues.Remove(DestroyedEntityId);
 	Participants.Remove(DestroyedEntityId);
+	AbortCommandsTargetingParticipant(DestroyedEntityId);
 }
 
 void AArenaParticipantManager::HandleArenaObjectDestroyed(AActor* DestroyedActor)

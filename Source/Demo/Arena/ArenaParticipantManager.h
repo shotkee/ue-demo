@@ -230,6 +230,7 @@ private:
 		const FString& EntityId,
 		EArenaCommandError ErrorCode,
 		const FString& Message);
+	void AbortCommandsTargetingParticipant(const FString& RemovedEntityId);
 	bool DestroyRegisteredParticipant(const FString& EntityId, AArenaMannequinCharacter* Participant);
 	void RecordCommandState(
 		const FArenaCommand& Command,

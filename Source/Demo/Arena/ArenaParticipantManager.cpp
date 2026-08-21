@@ -2,10 +2,12 @@
 
 #include "ArenaParticipantManager.h"
 
+#include "ArenaCommandPanelWidget.h"
 #include "ArenaInteractable.h"
 #include "ArenaMannequinCharacter.h"
 #include "Animation/AnimMontage.h"
 #include "Components/CapsuleComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
@@ -35,6 +37,39 @@ void AArenaParticipantManager::BeginPlay()
 {
 	Super::BeginPlay();
 	RefreshArenaObjects();
+	CreateLocalCommandPanel();
+}
+
+void AArenaParticipantManager::CreateLocalCommandPanel()
+{
+	if (!bShowLocalCommandPanel || GetNetMode() == NM_DedicatedServer || !IsValid(GetWorld()))
+	{
+		return;
+	}
+
+	APlayerController* PlayerController = GetWorld()->GetFirstPlayerController();
+	if (!IsValid(PlayerController) || !PlayerController->IsLocalController())
+	{
+		return;
+	}
+
+	LocalCommandPanel = CreateWidget<UArenaCommandPanelWidget>(
+		PlayerController,
+		UArenaCommandPanelWidget::StaticClass());
+	if (!IsValid(LocalCommandPanel))
+	{
+		UE_LOG(LogArenaCommands, Warning, TEXT("Failed to create the local arena command panel."));
+		return;
+	}
+
+	LocalCommandPanel->InitializeWithManager(this);
+	LocalCommandPanel->AddToViewport(100);
+
+	FInputModeGameAndUI InputMode;
+	InputMode.SetHideCursorDuringCapture(false);
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	PlayerController->SetInputMode(InputMode);
+	PlayerController->SetShowMouseCursor(true);
 }
 
 AArenaMannequinCharacter* AArenaParticipantManager::SpawnParticipant(
@@ -142,6 +177,14 @@ bool AArenaParticipantManager::RemoveParticipant(const FString& EntityId)
 int32 AArenaParticipantManager::GetParticipantCount() const
 {
 	return Participants.Num();
+}
+
+TArray<FString> AArenaParticipantManager::GetParticipantIds() const
+{
+	TArray<FString> ParticipantIds;
+	Participants.GetKeys(ParticipantIds);
+	ParticipantIds.Sort();
+	return ParticipantIds;
 }
 
 FArenaCommandResult AArenaParticipantManager::SubmitArenaCommand(const FArenaCommand& InCommand)
@@ -485,6 +528,28 @@ int32 AArenaParticipantManager::GetArenaObjectCount() const
 	return ArenaObjects.Num();
 }
 
+TArray<FName> AArenaParticipantManager::GetArenaObjectIds() const
+{
+	TArray<FName> ObjectIds;
+	ArenaObjects.GetKeys(ObjectIds);
+	ObjectIds.Sort([](const FName& Left, const FName& Right)
+	{
+		return Left.LexicalLess(Right);
+	});
+	return ObjectIds;
+}
+
+TArray<FName> AArenaParticipantManager::GetNamedPointIds() const
+{
+	TArray<FName> PointIds;
+	NamedPointTargets.GetKeys(PointIds);
+	PointIds.Sort([](const FName& Left, const FName& Right)
+	{
+		return Left.LexicalLess(Right);
+	});
+	return PointIds;
+}
+
 TArray<FName> AArenaParticipantManager::GetRegisteredActionIds() const
 {
 	TArray<FName> ActionIds;
@@ -750,12 +815,18 @@ void AArenaParticipantManager::ExecuteActiveCommand(
 	{
 		Queue->bHasActiveCommand = false;
 		Queue->ActiveCommand = FArenaCommand();
-		RecordCommandState(Command, EArenaCommandStatus::Completed);
 		CancelParticipantCommands(
 			EntityId,
 			EArenaCommandError::ParticipantRemoved,
 			TEXT("Command was cancelled because the participant left the arena."));
-		DestroyRegisteredParticipant(EntityId, Participant);
+		const bool bParticipantRemoved = DestroyRegisteredParticipant(EntityId, Participant);
+		RecordCommandState(
+			Command,
+			bParticipantRemoved ? EArenaCommandStatus::Completed : EArenaCommandStatus::Failed,
+			bParticipantRemoved ? EArenaCommandError::None : EArenaCommandError::ExecutionFailed,
+			bParticipantRemoved
+				? TEXT("Participant left the arena.")
+				: TEXT("Participant could not be removed from the arena."));
 		return;
 	}
 

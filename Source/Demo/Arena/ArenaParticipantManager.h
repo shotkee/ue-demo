@@ -10,6 +10,7 @@
 
 class AArenaMannequinCharacter;
 class UAnimMontage;
+class UArenaCommandPanelWidget;
 
 USTRUCT()
 struct FArenaParticipantCommandQueue
@@ -53,6 +54,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Arena|Participants")
 	int32 GetParticipantCount() const;
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Participants")
+	TArray<FString> GetParticipantIds() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
 	FArenaCommandResult SubmitArenaCommand(const FArenaCommand& Command);
@@ -117,6 +121,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Arena|Objects")
 	int32 GetArenaObjectCount() const;
 
+	UFUNCTION(BlueprintPure, Category = "Arena|Objects")
+	TArray<FName> GetArenaObjectIds() const;
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Commands")
+	TArray<FName> GetNamedPointIds() const;
+
 	UFUNCTION(BlueprintPure, Category = "Arena|Actions")
 	TArray<FName> GetRegisteredActionIds() const;
 
@@ -164,6 +174,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Actions")
 	TMap<FName, FArenaActionDefinition> ActionRegistry;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Debug UI")
+	bool bShowLocalCommandPanel = true;
 
 private:
 	static constexpr int32 SupportedProtocolVersion = 1;
@@ -224,6 +237,7 @@ private:
 		UAnimMontage* Montage,
 		bool bInterrupted);
 	void HandleParticipantActionEvent(AArenaMannequinCharacter* Participant, FName EventId);
+	void CreateLocalCommandPanel();
 
 	UFUNCTION()
 	void HandleParticipantDestroyed(AActor* DestroyedActor);
@@ -245,4 +259,7 @@ private:
 
 	UPROPERTY(Transient)
 	TMap<FName, TObjectPtr<AActor>> ArenaObjects;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UArenaCommandPanelWidget> LocalCommandPanel;
 };

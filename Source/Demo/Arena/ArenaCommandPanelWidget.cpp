@@ -17,6 +17,7 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Engine/GameInstance.h"
 #include "Styling/CoreStyle.h"
 
 namespace ArenaCommandPanel
@@ -68,14 +69,32 @@ void UArenaCommandPanelWidget::InitializeWithManager(AArenaParticipantManager* I
 	{
 		Manager->OnCommandStatusChanged.RemoveDynamic(this, &UArenaCommandPanelWidget::HandleCommandStatusChanged);
 	}
+	if (IsValid(WebSocketSubsystem))
+	{
+		WebSocketSubsystem->OnConnectionStateChanged.RemoveDynamic(
+			this,
+			&UArenaCommandPanelWidget::HandleWebSocketConnectionStateChanged);
+	}
 
 	Manager = InManager;
+	WebSocketSubsystem = nullptr;
 	if (!IsValid(Manager))
 	{
 		return;
 	}
 
 	Manager->OnCommandStatusChanged.AddUniqueDynamic(this, &UArenaCommandPanelWidget::HandleCommandStatusChanged);
+	if (UGameInstance* GameInstance = Manager->GetGameInstance())
+	{
+		WebSocketSubsystem = GameInstance->GetSubsystem<UArenaWebSocketSubsystem>();
+	}
+	if (IsValid(WebSocketSubsystem))
+	{
+		WebSocketSubsystem->OnConnectionStateChanged.AddUniqueDynamic(
+			this,
+			&UArenaCommandPanelWidget::HandleWebSocketConnectionStateChanged);
+		UpdateWebSocketConnectionState(WebSocketSubsystem->GetConnectionState());
+	}
 	RefreshDynamicOptions();
 
 	if (IsValid(LogScrollBox))
@@ -102,6 +121,12 @@ void UArenaCommandPanelWidget::NativeDestruct()
 	{
 		Manager->OnCommandStatusChanged.RemoveDynamic(this, &UArenaCommandPanelWidget::HandleCommandStatusChanged);
 	}
+	if (IsValid(WebSocketSubsystem))
+	{
+		WebSocketSubsystem->OnConnectionStateChanged.RemoveDynamic(
+			this,
+			&UArenaCommandPanelWidget::HandleWebSocketConnectionStateChanged);
+	}
 
 	Super::NativeDestruct();
 }
@@ -117,8 +142,8 @@ void UArenaCommandPanelWidget::BuildPanel()
 	WidgetTree->RootWidget = RootCanvas;
 
 	PanelSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("PanelSizeBox"));
-	PanelSizeBox->SetWidthOverride(500.0f);
-	PanelSizeBox->SetHeightOverride(64.0f);
+	PanelSizeBox->SetWidthOverride(540.0f);
+	PanelSizeBox->SetHeightOverride(72.0f);
 	UCanvasPanelSlot* PanelCanvasSlot = RootCanvas->AddChildToCanvas(PanelSizeBox);
 	PanelCanvasSlot->SetPosition(FVector2D(20.0f, 20.0f));
 	PanelCanvasSlot->SetAutoSize(true);
@@ -135,19 +160,44 @@ void UArenaCommandPanelWidget::BuildPanel()
 	UVerticalBoxSlot* HeaderRowSlot = PanelRootLayout->AddChildToVerticalBox(HeaderRow);
 	HeaderRowSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 4.0f));
 
-	UTextBlock* Title = CreateTextBlock(TEXT("Arena Command Panel"), 22);
+	UTextBlock* Title = CreateTextBlock(TEXT("Arena Command Panel"), 20);
+	Title->SetAutoWrapText(false);
 	Title->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.9f, 1.0f, 1.0f)));
 	UHorizontalBoxSlot* TitleSlot = HeaderRow->AddChildToHorizontalBox(Title);
 	TitleSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+	TitleSlot->SetVerticalAlignment(VAlign_Center);
+
+	WebSocketConnectionStateText = CreateTextBlock(TEXT("WS: Disconnected"), 10);
+	WebSocketConnectionStateText->SetAutoWrapText(false);
+	WebSocketConnectionStateText->SetColorAndOpacity(
+		FSlateColor(FLinearColor(0.65f, 0.68f, 0.72f, 1.0f)));
+	USizeBox* WebSocketStateSizeBox = WidgetTree->ConstructWidget<USizeBox>(
+		USizeBox::StaticClass(),
+		TEXT("WebSocketStateSizeBox"));
+	WebSocketStateSizeBox->SetWidthOverride(108.0f);
+	WebSocketStateSizeBox->AddChild(WebSocketConnectionStateText);
+	UHorizontalBoxSlot* WebSocketStateSlot = HeaderRow->AddChildToHorizontalBox(
+		WebSocketStateSizeBox);
+	WebSocketStateSlot->SetPadding(FMargin(8.0f, 4.0f, 0.0f, 0.0f));
+	WebSocketStateSlot->SetVerticalAlignment(VAlign_Center);
 
 	UButton* TogglePanelButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("TogglePanelButton"));
 	TogglePanelButton->SetBackgroundColor(FLinearColor(0.12f, 0.16f, 0.22f, 1.0f));
 	TogglePanelButton->OnClicked.AddDynamic(this, &UArenaCommandPanelWidget::HandleTogglePanelClicked);
 	TogglePanelButtonText = CreateTextBlock(TEXT("Expand"), 11);
+	TogglePanelButtonText->SetAutoWrapText(false);
 	TogglePanelButtonText->SetColorAndOpacity(FSlateColor(FLinearColor::White));
 	TogglePanelButton->AddChild(TogglePanelButtonText);
-	UHorizontalBoxSlot* TogglePanelButtonSlot = HeaderRow->AddChildToHorizontalBox(TogglePanelButton);
+	USizeBox* TogglePanelButtonSizeBox = WidgetTree->ConstructWidget<USizeBox>(
+		USizeBox::StaticClass(),
+		TEXT("TogglePanelButtonSizeBox"));
+	TogglePanelButtonSizeBox->SetWidthOverride(76.0f);
+	TogglePanelButtonSizeBox->SetHeightOverride(36.0f);
+	TogglePanelButtonSizeBox->AddChild(TogglePanelButton);
+	UHorizontalBoxSlot* TogglePanelButtonSlot = HeaderRow->AddChildToHorizontalBox(
+		TogglePanelButtonSizeBox);
 	TogglePanelButtonSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
+	TogglePanelButtonSlot->SetVerticalAlignment(VAlign_Center);
 
 	PanelBody = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PanelBody"));
 	PanelBody->SetVisibility(ESlateVisibility::Collapsed);
@@ -581,6 +631,41 @@ void UArenaCommandPanelWidget::SetCurrentStatus(const FArenaCommandStateRecord& 
 			: FLinearColor(0.6f, 0.85f, 0.65f, 1.0f)));
 }
 
+void UArenaCommandPanelWidget::UpdateWebSocketConnectionState(
+	const EArenaWebSocketConnectionState NewState)
+{
+	if (!IsValid(WebSocketConnectionStateText))
+	{
+		return;
+	}
+
+	FString Label;
+	FLinearColor Color;
+	switch (NewState)
+	{
+	case EArenaWebSocketConnectionState::Connecting:
+		Label = TEXT("WS: Connecting");
+		Color = FLinearColor(0.95f, 0.8f, 0.25f, 1.0f);
+		break;
+	case EArenaWebSocketConnectionState::Connected:
+		Label = TEXT("WS: Connected");
+		Color = FLinearColor(0.3f, 0.9f, 0.45f, 1.0f);
+		break;
+	case EArenaWebSocketConnectionState::Reconnecting:
+		Label = TEXT("WS: Reconnecting");
+		Color = FLinearColor(1.0f, 0.55f, 0.2f, 1.0f);
+		break;
+	case EArenaWebSocketConnectionState::Disconnected:
+	default:
+		Label = TEXT("WS: Disconnected");
+		Color = FLinearColor(0.65f, 0.68f, 0.72f, 1.0f);
+		break;
+	}
+
+	WebSocketConnectionStateText->SetText(FText::FromString(Label));
+	WebSocketConnectionStateText->SetColorAndOpacity(FSlateColor(Color));
+}
+
 FString UArenaCommandPanelWidget::EnumDisplayName(const UEnum* Enum, const int64 Value)
 {
 	return IsValid(Enum)
@@ -657,7 +742,7 @@ void UArenaCommandPanelWidget::HandleTogglePanelClicked()
 	bIsPanelCollapsed = !bIsPanelCollapsed;
 	PanelBody->SetVisibility(
 		bIsPanelCollapsed ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
-	PanelSizeBox->SetHeightOverride(bIsPanelCollapsed ? 64.0f : 720.0f);
+	PanelSizeBox->SetHeightOverride(bIsPanelCollapsed ? 72.0f : 720.0f);
 	TogglePanelButtonText->SetText(FText::FromString(
 		bIsPanelCollapsed ? TEXT("Expand") : TEXT("Collapse")));
 }
@@ -703,4 +788,10 @@ void UArenaCommandPanelWidget::HandleCommandStatusChanged(FArenaCommandStateReco
 		SetComboOptions(ParticipantComboBox, Manager->GetParticipantIds(), PreferredParticipant);
 		RefreshTargetOptions();
 	}
+}
+
+void UArenaCommandPanelWidget::HandleWebSocketConnectionStateChanged(
+	const EArenaWebSocketConnectionState NewState)
+{
+	UpdateWebSocketConnectionState(NewState);
 }

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "ArenaCommandTypes.h"
+#include "ArenaWebSocketSubsystem.h"
 #include "Components/ComboBoxString.h"
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
@@ -54,6 +55,7 @@ private:
 	FString GenerateRequestId();
 	void AppendLogRecord(const FArenaCommandStateRecord& StateRecord);
 	void SetCurrentStatus(const FArenaCommandStateRecord& StateRecord);
+	void UpdateWebSocketConnectionState(EArenaWebSocketConnectionState NewState);
 	static FString EnumDisplayName(const UEnum* Enum, int64 Value);
 
 	UFUNCTION()
@@ -77,8 +79,14 @@ private:
 	UFUNCTION()
 	void HandleCommandStatusChanged(FArenaCommandStateRecord StateRecord);
 
+	UFUNCTION()
+	void HandleWebSocketConnectionStateChanged(EArenaWebSocketConnectionState NewState);
+
 	UPROPERTY(Transient)
 	TObjectPtr<AArenaParticipantManager> Manager;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UArenaWebSocketSubsystem> WebSocketSubsystem;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UEditableTextBox> NewEntityIdInput;
@@ -124,6 +132,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> TogglePanelButtonText;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> WebSocketConnectionStateText;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UHorizontalBox> NewEntityIdRow;

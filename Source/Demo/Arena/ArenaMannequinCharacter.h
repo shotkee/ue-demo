@@ -52,6 +52,12 @@ public:
 	bool MoveToArenaLocation(const FVector& Destination, EArenaMovementMode MovementMode = EArenaMovementMode::Walk);
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Movement")
+	bool MoveToArenaActor(AActor* TargetActor, EArenaMovementMode MovementMode = EArenaMovementMode::Walk);
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Movement")
+	bool FaceArenaTarget(const AActor* TargetActor);
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Movement")
 	void SetArenaMovementMode(EArenaMovementMode MovementMode);
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Movement")
@@ -91,6 +97,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Movement", meta = (ClampMin = "0.0", Units = "cm"))
 	float MoveAcceptanceRadius = 50.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Movement", meta = (ClampMin = "0.0", Units = "cm"))
+	float ActorApproachClearance = 20.0f;
 
 private:
 	void SetArenaActorState(EArenaActorState NewState);

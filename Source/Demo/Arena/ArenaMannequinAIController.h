@@ -16,6 +16,9 @@ public:
 	bool MoveToArenaLocation(const FVector& Destination, float AcceptanceRadius = 50.0f);
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Movement")
+	bool MoveToArenaActor(AActor* TargetActor, float AcceptanceRadius = 20.0f);
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Movement")
 	void StopArenaMovement();
 
 protected:

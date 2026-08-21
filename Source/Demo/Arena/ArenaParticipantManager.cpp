@@ -2,9 +2,11 @@
 
 #include "ArenaParticipantManager.h"
 
+#include "ArenaInteractable.h"
 #include "ArenaMannequinCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
 #include "NavigationSystem.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogArenaParticipants, Log, All);
@@ -13,6 +15,12 @@ DEFINE_LOG_CATEGORY_STATIC(LogArenaCommands, Log, All);
 AArenaParticipantManager::AArenaParticipantManager()
 {
 	PrimaryActorTick.bCanEverTick = false;
+}
+
+void AArenaParticipantManager::BeginPlay()
+{
+	Super::BeginPlay();
+	RefreshArenaObjects();
 }
 
 AArenaMannequinCharacter* AArenaParticipantManager::SpawnParticipant(
@@ -121,6 +129,12 @@ FArenaCommandResult AArenaParticipantManager::SubmitArenaCommand(const FArenaCom
 	FArenaCommand Command = InCommand;
 	Command.RequestId = NormalizeRequestId(Command.RequestId);
 	Command.ActorId = NormalizeEntityId(Command.ActorId);
+	Command.TargetId = NormalizeNameId(Command.TargetId);
+	Command.InteractionPointId = NormalizeNameId(Command.InteractionPointId);
+	if (Command.CommandType == EArenaCommandType::ApproachObject && Command.InteractionPointId.IsNone())
+	{
+		Command.InteractionPointId = FName(TEXT("default"));
+	}
 
 	RecordCommandState(Command, EArenaCommandStatus::Received);
 
@@ -184,12 +198,37 @@ FArenaCommandResult AArenaParticipantManager::SubmitArenaCommand(const FArenaCom
 	}
 	else if (Command.CommandType == EArenaCommandType::MoveToActor)
 	{
-		if (Command.TargetId.IsNone() || !IsValid(FindParticipant(Command.TargetId.ToString())))
+		AArenaMannequinCharacter* TargetParticipant = FindParticipant(Command.TargetId.ToString());
+		if (Command.TargetId.IsNone() || !IsValid(TargetParticipant))
 		{
 			return RejectCommand(
 				Command,
 				EArenaCommandError::UnknownTarget,
 				TEXT("Target participant was not found."));
+		}
+
+		if (TargetParticipant == Participant)
+		{
+			return RejectCommand(
+				Command,
+				EArenaCommandError::InvalidRequest,
+				TEXT("A participant cannot move to itself."));
+		}
+	}
+	else if (Command.CommandType == EArenaCommandType::ApproachObject)
+	{
+		AActor* TargetObject = nullptr;
+		FVector InteractionPoint;
+		if (!TryResolveArenaObjectInteractionPoint(
+			Command.TargetId,
+			Command.InteractionPointId,
+			TargetObject,
+			InteractionPoint))
+		{
+			return RejectCommand(
+				Command,
+				EArenaCommandError::UnknownTarget,
+				TEXT("Arena object or interaction point was not found."));
 		}
 	}
 
@@ -243,6 +282,40 @@ FArenaCommandResult AArenaParticipantManager::SubmitMoveToPointCommand(
 	return SubmitArenaCommand(Command);
 }
 
+FArenaCommandResult AArenaParticipantManager::SubmitMoveToActorCommand(
+	const FString& RequestId,
+	const FString& EntityId,
+	const FString& TargetEntityId,
+	const EArenaMovementMode MovementMode)
+{
+	FArenaCommand Command;
+	Command.Version = SupportedProtocolVersion;
+	Command.RequestId = RequestId;
+	Command.ActorId = EntityId;
+	Command.CommandType = EArenaCommandType::MoveToActor;
+	Command.TargetId = FName(*NormalizeEntityId(TargetEntityId));
+	Command.MovementMode = MovementMode;
+	return SubmitArenaCommand(Command);
+}
+
+FArenaCommandResult AArenaParticipantManager::SubmitApproachObjectCommand(
+	const FString& RequestId,
+	const FString& EntityId,
+	const FName ObjectId,
+	const FName InteractionPointId,
+	const EArenaMovementMode MovementMode)
+{
+	FArenaCommand Command;
+	Command.Version = SupportedProtocolVersion;
+	Command.RequestId = RequestId;
+	Command.ActorId = EntityId;
+	Command.CommandType = EArenaCommandType::ApproachObject;
+	Command.TargetId = ObjectId;
+	Command.InteractionPointId = InteractionPointId;
+	Command.MovementMode = MovementMode;
+	return SubmitArenaCommand(Command);
+}
+
 FArenaCommandResult AArenaParticipantManager::SubmitStopCommand(
 	const FString& RequestId,
 	const FString& EntityId)
@@ -287,6 +360,58 @@ bool AArenaParticipantManager::IsParticipantExecutingCommand(const FString& Enti
 int32 AArenaParticipantManager::GetSupportedProtocolVersion() const
 {
 	return SupportedProtocolVersion;
+}
+
+int32 AArenaParticipantManager::RefreshArenaObjects()
+{
+	for (const TPair<FName, TObjectPtr<AActor>>& Entry : ArenaObjects)
+	{
+		if (IsValid(Entry.Value))
+		{
+			Entry.Value->OnDestroyed.RemoveDynamic(this, &AArenaParticipantManager::HandleArenaObjectDestroyed);
+		}
+	}
+	ArenaObjects.Reset();
+
+	TArray<AActor*> FoundObjects;
+	UGameplayStatics::GetAllActorsWithInterface(this, UArenaInteractable::StaticClass(), FoundObjects);
+	for (AActor* Object : FoundObjects)
+	{
+		if (!IsValid(Object))
+		{
+			continue;
+		}
+
+		const FName ObjectId = NormalizeNameId(IArenaInteractable::Execute_GetArenaObjectId(Object));
+		if (ObjectId.IsNone())
+		{
+			UE_LOG(LogArenaCommands, Warning, TEXT("Ignoring arena object '%s': ObjectId is empty."), *Object->GetName());
+			continue;
+		}
+
+		if (ArenaObjects.Contains(ObjectId))
+		{
+			UE_LOG(LogArenaCommands, Warning, TEXT("Ignoring arena object '%s': ObjectId '%s' is duplicated."), *Object->GetName(), *ObjectId.ToString());
+			continue;
+		}
+
+		ArenaObjects.Add(ObjectId, Object);
+		Object->OnDestroyed.AddUniqueDynamic(this, &AArenaParticipantManager::HandleArenaObjectDestroyed);
+	}
+
+	UE_LOG(LogArenaCommands, Log, TEXT("Registered %d arena object(s)."), ArenaObjects.Num());
+	return ArenaObjects.Num();
+}
+
+AActor* AArenaParticipantManager::FindArenaObject(const FName ObjectId) const
+{
+	const TObjectPtr<AActor>* Object = ArenaObjects.Find(NormalizeNameId(ObjectId));
+	return Object != nullptr && IsValid(Object->Get()) ? Object->Get() : nullptr;
+}
+
+int32 AArenaParticipantManager::GetArenaObjectCount() const
+{
+	return ArenaObjects.Num();
 }
 
 FArenaCommandResult AArenaParticipantManager::RejectCommand(
@@ -425,6 +550,65 @@ void AArenaParticipantManager::ExecuteActiveCommand(
 		return;
 	}
 
+	case EArenaCommandType::MoveToActor:
+	{
+		AArenaMannequinCharacter* TargetParticipant = FindParticipant(Command.TargetId.ToString());
+		if (!IsValid(TargetParticipant) || TargetParticipant == Participant)
+		{
+			FinishActiveCommand(
+				EntityId,
+				EArenaCommandStatus::Failed,
+				EArenaCommandError::UnknownTarget,
+				TEXT("Target participant disappeared before execution."));
+			return;
+		}
+
+		if (!Participant->MoveToArenaActor(TargetParticipant, Command.MovementMode))
+		{
+			FinishActiveCommand(
+				EntityId,
+				EArenaCommandStatus::Failed,
+				EArenaCommandError::UnreachableTarget,
+				TEXT("No path to the target participant was found."));
+			return;
+		}
+
+		return;
+	}
+
+	case EArenaCommandType::ApproachObject:
+	{
+		AActor* TargetObject = nullptr;
+		FVector InteractionPoint;
+		if (!TryResolveArenaObjectInteractionPoint(
+			Command.TargetId,
+			Command.InteractionPointId,
+			TargetObject,
+			InteractionPoint))
+		{
+			FinishActiveCommand(
+				EntityId,
+				EArenaCommandStatus::Failed,
+				EArenaCommandError::UnknownTarget,
+				TEXT("Arena object or interaction point disappeared before execution."));
+			return;
+		}
+
+		FVector NavigationLocation;
+		if (!TryProjectInteractionPointToNavigation(InteractionPoint, NavigationLocation)
+			|| !Participant->MoveToArenaLocation(NavigationLocation, Command.MovementMode))
+		{
+			FinishActiveCommand(
+				EntityId,
+				EArenaCommandStatus::Failed,
+				EArenaCommandError::UnreachableTarget,
+				TEXT("No path to the object interaction point was found."));
+			return;
+		}
+
+		return;
+	}
+
 	case EArenaCommandType::Leave:
 	{
 		Queue->bHasActiveCommand = false;
@@ -438,9 +622,7 @@ void AArenaParticipantManager::ExecuteActiveCommand(
 		return;
 	}
 
-	case EArenaCommandType::MoveToActor:
 	case EArenaCommandType::PlayAction:
-	case EArenaCommandType::ApproachObject:
 	case EArenaCommandType::Spawn:
 	case EArenaCommandType::Stop:
 	default:
@@ -677,6 +859,60 @@ FString AArenaParticipantManager::NormalizeRequestId(const FString& RequestId)
 	return NormalizedRequestId;
 }
 
+FName AArenaParticipantManager::NormalizeNameId(const FName NameId)
+{
+	if (NameId.IsNone())
+	{
+		return NAME_None;
+	}
+
+	FString NormalizedName = NameId.ToString();
+	NormalizedName.TrimStartAndEndInline();
+	return NormalizedName.IsEmpty() ? NAME_None : FName(*NormalizedName);
+}
+
+bool AArenaParticipantManager::TryResolveArenaObjectInteractionPoint(
+	const FName ObjectId,
+	const FName InteractionPointId,
+	AActor*& OutObject,
+	FVector& OutWorldLocation) const
+{
+	OutObject = FindArenaObject(ObjectId);
+	if (!IsValid(OutObject)
+		|| !OutObject->GetClass()->ImplementsInterface(UArenaInteractable::StaticClass()))
+	{
+		return false;
+	}
+
+	return IArenaInteractable::Execute_GetArenaInteractionPoint(
+		OutObject,
+		NormalizeNameId(InteractionPointId),
+		OutWorldLocation);
+}
+
+bool AArenaParticipantManager::TryProjectInteractionPointToNavigation(
+	const FVector& InteractionPoint,
+	FVector& OutNavigationLocation) const
+{
+	UNavigationSystemV1* NavigationSystem = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+	if (!IsValid(NavigationSystem))
+	{
+		return false;
+	}
+
+	FNavLocation ProjectedLocation;
+	if (!NavigationSystem->ProjectPointToNavigation(
+		InteractionPoint,
+		ProjectedLocation,
+		InteractionPointProjectionExtent.GetAbs()))
+	{
+		return false;
+	}
+
+	OutNavigationLocation = ProjectedLocation.Location;
+	return true;
+}
+
 void AArenaParticipantManager::HandleParticipantMovementFinished(
 	AArenaMannequinCharacter* Participant,
 	const bool bSucceeded)
@@ -688,28 +924,80 @@ void AArenaParticipantManager::HandleParticipantMovementFinished(
 
 	const FString EntityId = Participant->GetEntityId();
 	const FArenaParticipantCommandQueue* Queue = CommandQueues.Find(EntityId);
-	if (Queue == nullptr
-		|| !Queue->bHasActiveCommand
-		|| Queue->ActiveCommand.CommandType != EArenaCommandType::MoveToPoint)
+	if (Queue == nullptr || !Queue->bHasActiveCommand)
 	{
 		return;
 	}
 
-	if (bSucceeded)
+	const FArenaCommand ActiveCommand = Queue->ActiveCommand;
+	switch (ActiveCommand.CommandType)
 	{
+	case EArenaCommandType::MoveToPoint:
 		FinishActiveCommand(
 			EntityId,
-			EArenaCommandStatus::Completed,
-			EArenaCommandError::None,
-			TEXT("Participant reached the named point target."));
+			bSucceeded ? EArenaCommandStatus::Completed : EArenaCommandStatus::Failed,
+			bSucceeded ? EArenaCommandError::None : EArenaCommandError::UnreachableTarget,
+			bSucceeded
+				? TEXT("Participant reached the named point target.")
+				: TEXT("Participant could not reach the named point target."));
+		return;
+
+	case EArenaCommandType::MoveToActor:
+	{
+		AArenaMannequinCharacter* TargetParticipant = FindParticipant(ActiveCommand.TargetId.ToString());
+		if (!IsValid(TargetParticipant))
+		{
+			FinishActiveCommand(
+				EntityId,
+				EArenaCommandStatus::Failed,
+				EArenaCommandError::UnknownTarget,
+				TEXT("Target participant disappeared during movement."));
+			return;
+		}
+
+		if (bSucceeded)
+		{
+			Participant->FaceArenaTarget(TargetParticipant);
+		}
+		FinishActiveCommand(
+			EntityId,
+			bSucceeded ? EArenaCommandStatus::Completed : EArenaCommandStatus::Failed,
+			bSucceeded ? EArenaCommandError::None : EArenaCommandError::UnreachableTarget,
+			bSucceeded
+				? TEXT("Participant reached and faced the target participant.")
+				: TEXT("Participant could not reach the target participant."));
+		return;
 	}
-	else
+
+	case EArenaCommandType::ApproachObject:
 	{
+		AActor* TargetObject = FindArenaObject(ActiveCommand.TargetId);
+		if (!IsValid(TargetObject))
+		{
+			FinishActiveCommand(
+				EntityId,
+				EArenaCommandStatus::Failed,
+				EArenaCommandError::UnknownTarget,
+				TEXT("Arena object disappeared during movement."));
+			return;
+		}
+
+		if (bSucceeded)
+		{
+			Participant->FaceArenaTarget(TargetObject);
+		}
 		FinishActiveCommand(
 			EntityId,
-			EArenaCommandStatus::Failed,
-			EArenaCommandError::UnreachableTarget,
-			TEXT("Participant could not reach the named point target."));
+			bSucceeded ? EArenaCommandStatus::Completed : EArenaCommandStatus::Failed,
+			bSucceeded ? EArenaCommandError::None : EArenaCommandError::UnreachableTarget,
+			bSucceeded
+				? TEXT("Participant reached the object interaction point and faced the object.")
+				: TEXT("Participant could not reach the object interaction point."));
+		return;
+	}
+
+	default:
+		return;
 	}
 }
 
@@ -736,4 +1024,22 @@ void AArenaParticipantManager::HandleParticipantDestroyed(AActor* DestroyedActor
 		TEXT("Command was cancelled because the participant was destroyed."));
 	CommandQueues.Remove(DestroyedEntityId);
 	Participants.Remove(DestroyedEntityId);
+}
+
+void AArenaParticipantManager::HandleArenaObjectDestroyed(AActor* DestroyedActor)
+{
+	FName DestroyedObjectId = NAME_None;
+	for (const TPair<FName, TObjectPtr<AActor>>& Entry : ArenaObjects)
+	{
+		if (Entry.Value.Get() == DestroyedActor)
+		{
+			DestroyedObjectId = Entry.Key;
+			break;
+		}
+	}
+
+	if (!DestroyedObjectId.IsNone())
+	{
+		ArenaObjects.Remove(DestroyedObjectId);
+	}
 }

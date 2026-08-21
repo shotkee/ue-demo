@@ -11,6 +11,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/Controller.h"
 #include "Kismet/GameplayStatics.h"
 
 namespace
@@ -201,6 +202,55 @@ bool AArenaMannequinCharacter::MoveToArenaLocation(const FVector& Destination, c
 	}
 
 	return bMoveAccepted;
+}
+
+bool AArenaMannequinCharacter::MoveToArenaActor(AActor* TargetActor, const EArenaMovementMode MovementMode)
+{
+	if (!IsValid(TargetActor) || TargetActor == this)
+	{
+		return false;
+	}
+
+	SetArenaMovementMode(MovementMode);
+
+	AArenaMannequinAIController* ArenaController = Cast<AArenaMannequinAIController>(GetController());
+	if (!IsValid(ArenaController))
+	{
+		SetArenaActorState(EArenaActorState::Idle);
+		return false;
+	}
+
+	SetArenaActorState(EArenaActorState::Moving);
+	const bool bMoveAccepted = ArenaController->MoveToArenaActor(TargetActor, ActorApproachClearance);
+	if (!bMoveAccepted && ActorState == EArenaActorState::Moving)
+	{
+		SetArenaActorState(EArenaActorState::Idle);
+	}
+
+	return bMoveAccepted;
+}
+
+bool AArenaMannequinCharacter::FaceArenaTarget(const AActor* TargetActor)
+{
+	if (!IsValid(TargetActor) || TargetActor == this)
+	{
+		return false;
+	}
+
+	FVector DirectionToTarget = TargetActor->GetActorLocation() - GetActorLocation();
+	DirectionToTarget.Z = 0.0f;
+	if (DirectionToTarget.IsNearlyZero())
+	{
+		return false;
+	}
+
+	const FRotator TargetRotation = DirectionToTarget.Rotation();
+	SetActorRotation(TargetRotation);
+	if (AController* ArenaController = GetController())
+	{
+		ArenaController->SetControlRotation(TargetRotation);
+	}
+	return true;
 }
 
 void AArenaMannequinCharacter::SetArenaMovementMode(const EArenaMovementMode MovementMode)

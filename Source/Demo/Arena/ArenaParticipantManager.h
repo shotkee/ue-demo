@@ -66,6 +66,21 @@ public:
 		EArenaMovementMode MovementMode = EArenaMovementMode::Walk);
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
+	FArenaCommandResult SubmitMoveToActorCommand(
+		const FString& RequestId,
+		const FString& EntityId,
+		const FString& TargetEntityId,
+		EArenaMovementMode MovementMode = EArenaMovementMode::Walk);
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
+	FArenaCommandResult SubmitApproachObjectCommand(
+		const FString& RequestId,
+		const FString& EntityId,
+		FName ObjectId,
+		FName InteractionPointId,
+		EArenaMovementMode MovementMode = EArenaMovementMode::Walk);
+
+	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
 	FArenaCommandResult SubmitStopCommand(const FString& RequestId, const FString& EntityId);
 
 	UFUNCTION(BlueprintCallable, Category = "Arena|Commands")
@@ -83,10 +98,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Arena|Commands")
 	int32 GetSupportedProtocolVersion() const;
 
+	UFUNCTION(BlueprintCallable, Category = "Arena|Objects")
+	int32 RefreshArenaObjects();
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Objects")
+	AActor* FindArenaObject(FName ObjectId) const;
+
+	UFUNCTION(BlueprintPure, Category = "Arena|Objects")
+	int32 GetArenaObjectCount() const;
+
 	UPROPERTY(BlueprintAssignable, Category = "Arena|Commands")
 	FArenaCommandStatusChangedSignature OnCommandStatusChanged;
 
 protected:
+	virtual void BeginPlay() override;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Participants")
 	TSubclassOf<AArenaMannequinCharacter> MannequinClass;
 
@@ -117,13 +143,25 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Commands", meta = (ClampMin = "1", UIMin = "1"))
 	int32 MaximumCommandHistoryEntries = 200;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Arena|Objects", meta = (Units = "cm"))
+	FVector InteractionPointProjectionExtent = FVector(100.0f, 100.0f, 250.0f);
+
 private:
 	static constexpr int32 SupportedProtocolVersion = 1;
 
 	bool TryFindSpawnLocation(FVector& OutSpawnLocation) const;
 	bool IsSpawnLocationFree(const FVector& CandidateLocation, float CapsuleRadius, float CapsuleHalfHeight) const;
+	bool TryResolveArenaObjectInteractionPoint(
+		FName ObjectId,
+		FName InteractionPointId,
+		AActor*& OutObject,
+		FVector& OutWorldLocation) const;
+	bool TryProjectInteractionPointToNavigation(
+		const FVector& InteractionPoint,
+		FVector& OutNavigationLocation) const;
 	static FString NormalizeEntityId(const FString& EntityId);
 	static FString NormalizeRequestId(const FString& RequestId);
+	static FName NormalizeNameId(FName NameId);
 
 	FArenaCommandResult RejectCommand(
 		const FArenaCommand& Command,
@@ -159,6 +197,9 @@ private:
 	UFUNCTION()
 	void HandleParticipantDestroyed(AActor* DestroyedActor);
 
+	UFUNCTION()
+	void HandleArenaObjectDestroyed(AActor* DestroyedActor);
+
 	UPROPERTY(Transient)
 	TMap<FString, TObjectPtr<AArenaMannequinCharacter>> Participants;
 
@@ -170,4 +211,7 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<FArenaCommandStateRecord> CommandHistory;
+
+	UPROPERTY(Transient)
+	TMap<FName, TObjectPtr<AActor>> ArenaObjects;
 };

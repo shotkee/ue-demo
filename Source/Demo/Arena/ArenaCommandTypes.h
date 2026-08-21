@@ -75,6 +75,9 @@ struct DEMO_API FArenaCommand
 	FName TargetId = NAME_None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Command")
+	FName InteractionPointId = FName(TEXT("default"));
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Command")
 	FName ActionId = NAME_None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Command")

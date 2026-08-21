@@ -20,6 +20,25 @@ bool AArenaMannequinAIController::MoveToArenaLocation(const FVector& Destination
 	return Result != EPathFollowingRequestResult::Failed;
 }
 
+bool AArenaMannequinAIController::MoveToArenaActor(AActor* TargetActor, const float AcceptanceRadius)
+{
+	if (!IsValid(TargetActor) || TargetActor == GetPawn())
+	{
+		return false;
+	}
+
+	const EPathFollowingRequestResult::Type Result = MoveToActor(
+		TargetActor,
+		FMath::Max(0.0f, AcceptanceRadius),
+		true,
+		true,
+		true,
+		nullptr,
+		true);
+
+	return Result != EPathFollowingRequestResult::Failed;
+}
+
 void AArenaMannequinAIController::StopArenaMovement()
 {
 	StopMovement();

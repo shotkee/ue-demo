@@ -66,7 +66,17 @@ function reconnect(sessionId: string, reconnectUrl: string): string {
   });
 }
 
-function chatNotification(deliveryId: string, messageId: string, text: string): string {
+function chatNotification(
+  deliveryId: string,
+  messageId: string,
+  text: string,
+  options: {
+    chatterUserId?: string;
+    chatterUserLogin?: string;
+    chatterUserName?: string;
+    badges?: Array<Record<string, unknown>>;
+  } = {},
+): string {
   return envelope("notification", deliveryId, {
     subscription: {
       id: "subscription-1",
@@ -78,9 +88,10 @@ function chatNotification(deliveryId: string, messageId: string, text: string): 
       broadcaster_user_id: "1001",
       broadcaster_user_login: "broadcaster",
       broadcaster_user_name: "Broadcaster",
-      chatter_user_id: "2002",
-      chatter_user_login: "alice",
-      chatter_user_name: "Alice",
+      chatter_user_id: options.chatterUserId ?? "2002",
+      chatter_user_login: options.chatterUserLogin ?? "alice",
+      chatter_user_name: options.chatterUserName ?? "Alice",
+      badges: options.badges ?? [],
       message_id: messageId,
       message: { text },
     },
@@ -178,18 +189,31 @@ test("subscribes to chat, filters non-commands, deduplicates messages, and repor
     assert.ok(serverSocket !== undefined);
     serverSocket.send(envelope("session_keepalive", "keepalive-1", {}));
     serverSocket.send(chatNotification("delivery-ordinary", "chat-ordinary", "hello"));
-    serverSocket.send(chatNotification("delivery-command", "chat-command", "  !join"));
+    serverSocket.send(chatNotification("delivery-command", "chat-command", "  !join", {
+      badges: [{ set_id: "moderator", id: "1", info: "" }],
+    }));
     await waitFor(() => commands.length === 1, "The Twitch command was not emitted.");
     assert.equal(commands[0]?.chatterUserId, "2002");
     assert.equal(commands[0]?.chatterUserLogin, "alice");
     assert.equal(commands[0]?.chatterUserName, "Alice");
+    assert.equal(commands[0]?.isBroadcaster, false);
+    assert.equal(commands[0]?.isModerator, true);
     assert.equal(commands[0]?.text, "  !join");
+
+    serverSocket.send(chatNotification("delivery-broadcaster", "chat-broadcaster", "!stop", {
+      chatterUserId: "1001",
+      chatterUserLogin: "broadcaster",
+      chatterUserName: "Broadcaster",
+    }));
+    await waitFor(() => commands.length === 2, "The broadcaster command was not emitted.");
+    assert.equal(commands[1]?.isBroadcaster, true);
+    assert.equal(commands[1]?.isModerator, false);
 
     serverSocket.send(chatNotification("delivery-retry", "chat-command", "  !join"));
     serverSocket.send(revocation());
     await waitFor(() => revocations.length === 1, "The revocation event was not emitted.");
     await new Promise((resolve) => setTimeout(resolve, 25));
-    assert.equal(commands.length, 1);
+    assert.equal(commands.length, 2);
     assert.deepEqual(revocations, ["authorization_revoked"]);
   } finally {
     await client.stop();

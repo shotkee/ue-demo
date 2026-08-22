@@ -19,9 +19,31 @@ export interface ArenaCommandSink {
   onCommandExpired(listener: (command: ArenaCommand) => void): () => void;
 }
 
+export interface TwitchChatCommandLimits {
+  userCooldownMs: number;
+  globalCommandsPerSecond: number;
+  userQueueLimit: number;
+  maxParticipants: number;
+  maxMessageLength: number;
+}
+
+export const DEFAULT_TWITCH_CHAT_COMMAND_LIMITS: Readonly<TwitchChatCommandLimits> = Object.freeze({
+  userCooldownMs: 750,
+  globalCommandsPerSecond: 20,
+  userQueueLimit: 4,
+  maxParticipants: 20,
+  maxMessageLength: 200,
+});
+
 interface PendingLifecycleCommand {
   actorId: string;
   chatCommand: "join" | "leave";
+}
+
+interface LimitRejection {
+  errorCode: "user_cooldown" | "global_rate_limit" | "user_queue_full";
+  message: string;
+  details: Record<string, unknown>;
 }
 
 type ParticipantState = "joining" | "joined";
@@ -29,19 +51,26 @@ type ParticipantState = "joining" | "joined";
 export class TwitchChatCommandProcessor {
   private readonly participantStates = new Map<string, ParticipantState>();
   private readonly pendingLifecycleCommands = new Map<string, PendingLifecycleCommand>();
+  private readonly pendingActorByRequestId = new Map<string, string>();
+  private readonly pendingCommandCountByActor = new Map<string, number>();
+  private readonly lastAcceptedAtByUser = new Map<string, number>();
+  private readonly acceptedCommandTimestamps: number[] = [];
   private readonly removeStatusListener: () => void;
   private readonly removeConnectionListener: () => void;
   private readonly removeExpiredListener: () => void;
 
   public constructor(
     private readonly arena: ArenaCommandSink,
+    private readonly limits: Readonly<TwitchChatCommandLimits> = DEFAULT_TWITCH_CHAT_COMMAND_LIMITS,
     private readonly parser = new TwitchChatCommandParser(),
+    private readonly now: () => number = Date.now,
   ) {
     this.removeStatusListener = arena.onStatus((status) => this.handleArenaStatus(status));
     this.removeConnectionListener = arena.onConnectionChange((connected) => {
       if (!connected) {
         this.participantStates.clear();
         this.pendingLifecycleCommands.clear();
+        this.clearPendingCommands();
       }
     });
     this.removeExpiredListener = arena.onCommandExpired((command) => {
@@ -50,10 +79,20 @@ export class TwitchChatCommandProcessor {
         this.participantStates.delete(pending.actorId);
       }
       this.pendingLifecycleCommands.delete(command.requestId);
+      this.releasePendingCommand(command.requestId);
     });
   }
 
   public handle(message: TwitchChatMessage): void {
+    const messageLength = Array.from(message.text).length;
+    if (messageLength > this.limits.maxMessageLength) {
+      this.logRejection(message, "message_too_long", "Chat command exceeds the configured length limit.", {
+        messageLength,
+        maximumMessageLength: this.limits.maxMessageLength,
+      });
+      return;
+    }
+
     let chatCommand: TwitchChatCommandName;
     let arenaCommand: ArenaCommand;
     try {
@@ -62,14 +101,7 @@ export class TwitchChatCommandProcessor {
       arenaCommand = translation.arenaCommand;
     } catch (error) {
       if (error instanceof TwitchChatCommandError) {
-        log("warn", "twitch_chat_command_rejected", {
-          twitchMessageId: message.messageId,
-          chatterUserId: message.chatterUserId,
-          chatterUserLogin: message.chatterUserLogin,
-          text: message.text,
-          errorCode: error.code,
-          message: error.message,
-        });
+        this.logRejection(message, error.code, error.message, { text: message.text });
         return;
       }
 
@@ -77,7 +109,6 @@ export class TwitchChatCommandProcessor {
         twitchMessageId: message.messageId,
         chatterUserId: message.chatterUserId,
         chatterUserLogin: message.chatterUserLogin,
-        text: message.text,
         errorCode: "translation_failed",
         ...errorFields(error),
       });
@@ -96,6 +127,32 @@ export class TwitchChatCommandProcessor {
         });
         return;
       }
+
+      if (this.participantStates.size >= this.limits.maxParticipants) {
+        this.logRejection(
+          message,
+          "participant_limit_reached",
+          "The Twitch participant limit has been reached.",
+          { maximumParticipants: this.limits.maxParticipants },
+        );
+        return;
+      }
+    }
+
+    const bypassLimits = chatCommand === "stop";
+    const acceptedAt = this.now();
+    if (!bypassLimits) {
+      const rejection = this.checkLimits(message, arenaCommand, acceptedAt);
+      if (rejection !== undefined) {
+        this.logRejection(message, rejection.errorCode, rejection.message, {
+          chatCommand,
+          ...rejection.details,
+        });
+        return;
+      }
+    }
+
+    if (chatCommand === "join") {
       this.participantStates.set(arenaCommand.actorId, "joining");
     }
 
@@ -105,13 +162,21 @@ export class TwitchChatCommandProcessor {
         chatCommand,
       });
     }
+    if (!bypassLimits) {
+      this.trackPendingCommand(arenaCommand);
+    }
 
     try {
       const disposition = this.arena.send(arenaCommand);
+      if (!bypassLimits) {
+        this.recordAcceptedCommand(message.chatterUserId, acceptedAt);
+      }
       log("info", "twitch_chat_command_translated", {
         twitchMessageId: message.messageId,
         chatterUserId: message.chatterUserId,
         chatterUserLogin: message.chatterUserLogin,
+        isBroadcaster: message.isBroadcaster,
+        isModerator: message.isModerator,
         chatCommand,
         requestId: arenaCommand.requestId,
         actorId: arenaCommand.actorId,
@@ -124,12 +189,8 @@ export class TwitchChatCommandProcessor {
         this.participantStates.delete(arenaCommand.actorId);
       }
       this.pendingLifecycleCommands.delete(arenaCommand.requestId);
-      log("warn", "twitch_chat_command_rejected", {
-        twitchMessageId: message.messageId,
-        chatterUserId: message.chatterUserId,
-        chatterUserLogin: message.chatterUserLogin,
-        text: message.text,
-        errorCode: "arena_send_failed",
+      this.releasePendingCommand(arenaCommand.requestId);
+      this.logRejection(message, "arena_send_failed", "Could not send the command to the arena.", {
         ...errorFields(error),
       });
     }
@@ -141,6 +202,88 @@ export class TwitchChatCommandProcessor {
     this.removeExpiredListener();
     this.participantStates.clear();
     this.pendingLifecycleCommands.clear();
+    this.clearPendingCommands();
+    this.lastAcceptedAtByUser.clear();
+    this.acceptedCommandTimestamps.length = 0;
+  }
+
+  private checkLimits(
+    message: TwitchChatMessage,
+    arenaCommand: ArenaCommand,
+    acceptedAt: number,
+  ): LimitRejection | undefined {
+    const lastAcceptedAt = this.lastAcceptedAtByUser.get(message.chatterUserId);
+    if (this.limits.userCooldownMs > 0
+      && lastAcceptedAt !== undefined
+      && acceptedAt - lastAcceptedAt < this.limits.userCooldownMs) {
+      const retryAfterMs = this.limits.userCooldownMs - (acceptedAt - lastAcceptedAt);
+      return {
+        errorCode: "user_cooldown",
+        message: "The user is sending commands too quickly.",
+        details: { retryAfterMs },
+      };
+    }
+
+    this.removeExpiredRateSamples(acceptedAt);
+    if (this.acceptedCommandTimestamps.length >= this.limits.globalCommandsPerSecond) {
+      return {
+        errorCode: "global_rate_limit",
+        message: "The global Twitch command rate limit has been reached.",
+        details: { maximumCommandsPerSecond: this.limits.globalCommandsPerSecond },
+      };
+    }
+
+    const pendingCount = this.pendingCommandCountByActor.get(arenaCommand.actorId) ?? 0;
+    if (pendingCount >= this.limits.userQueueLimit) {
+      return {
+        errorCode: "user_queue_full",
+        message: "The participant already has the maximum number of active or queued commands.",
+        details: {
+          pendingCommandCount: pendingCount,
+          maximumQueuedCommands: this.limits.userQueueLimit,
+        },
+      };
+    }
+    return undefined;
+  }
+
+  private recordAcceptedCommand(chatterUserId: string, acceptedAt: number): void {
+    this.lastAcceptedAtByUser.set(chatterUserId, acceptedAt);
+    this.acceptedCommandTimestamps.push(acceptedAt);
+  }
+
+  private removeExpiredRateSamples(now: number): void {
+    const oldestAllowedTimestamp = now - 1_000;
+    while (this.acceptedCommandTimestamps[0] !== undefined
+      && (this.acceptedCommandTimestamps[0] as number) <= oldestAllowedTimestamp) {
+      this.acceptedCommandTimestamps.shift();
+    }
+  }
+
+  private trackPendingCommand(command: ArenaCommand): void {
+    this.pendingActorByRequestId.set(command.requestId, command.actorId);
+    const currentCount = this.pendingCommandCountByActor.get(command.actorId) ?? 0;
+    this.pendingCommandCountByActor.set(command.actorId, currentCount + 1);
+  }
+
+  private releasePendingCommand(requestId: string): void {
+    const actorId = this.pendingActorByRequestId.get(requestId);
+    if (actorId === undefined) {
+      return;
+    }
+    this.pendingActorByRequestId.delete(requestId);
+
+    const currentCount = this.pendingCommandCountByActor.get(actorId) ?? 0;
+    if (currentCount <= 1) {
+      this.pendingCommandCountByActor.delete(actorId);
+    } else {
+      this.pendingCommandCountByActor.set(actorId, currentCount - 1);
+    }
+  }
+
+  private clearPendingCommands(): void {
+    this.pendingActorByRequestId.clear();
+    this.pendingCommandCountByActor.clear();
   }
 
   private handleArenaStatus(status: ArenaCommandStatus): void {
@@ -148,6 +291,7 @@ export class TwitchChatCommandProcessor {
       return;
     }
 
+    this.releasePendingCommand(status.requestId);
     const pending = this.pendingLifecycleCommands.get(status.requestId);
     if (pending === undefined) {
       return;
@@ -166,5 +310,21 @@ export class TwitchChatCommandProcessor {
     if (status.status === "completed" || status.errorCode === "unknown_participant") {
       this.participantStates.delete(pending.actorId);
     }
+  }
+
+  private logRejection(
+    message: TwitchChatMessage,
+    errorCode: string,
+    rejectionMessage: string,
+    details: Record<string, unknown> = {},
+  ): void {
+    log("warn", "twitch_chat_command_rejected", {
+      twitchMessageId: message.messageId,
+      chatterUserId: message.chatterUserId,
+      chatterUserLogin: message.chatterUserLogin,
+      errorCode,
+      message: rejectionMessage,
+      ...details,
+    });
   }
 }

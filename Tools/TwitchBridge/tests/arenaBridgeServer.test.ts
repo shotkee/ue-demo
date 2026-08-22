@@ -7,6 +7,7 @@ import WebSocket from "ws";
 import { ArenaBridgeServer } from "../src/arenaBridgeServer.js";
 import type { BridgeConfig } from "../src/config.js";
 import { ARENA_PROTOCOL_VERSION, type ArenaCommand } from "../src/protocol.js";
+import { DEFAULT_TWITCH_CHAT_COMMAND_LIMITS } from "../src/twitchChatCommandProcessor.js";
 
 function createConfig(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
   return {
@@ -18,6 +19,8 @@ function createConfig(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
     statusTimeoutMs: 2_000,
     mode: "stdin",
     ...overrides,
+    twitchChatCommandLimits: overrides.twitchChatCommandLimits
+      ?? { ...DEFAULT_TWITCH_CHAT_COMMAND_LIMITS },
   };
 }
 

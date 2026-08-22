@@ -116,7 +116,10 @@ async function main(): Promise<void> {
       }
 
       eventSubClient = new TwitchEventSubClient(twitchConfig.clientId, () => refreshAuthorization(false));
-      chatCommandProcessor = new TwitchChatCommandProcessor(server);
+      chatCommandProcessor = new TwitchChatCommandProcessor(
+        server,
+        config.twitchChatCommandLimits,
+      );
       eventSubClient.onCommand((message) => chatCommandProcessor?.handle(message));
       eventSubClient.onRevocation((revocation) => {
         process.exitCode = 1;
@@ -142,6 +145,7 @@ async function main(): Promise<void> {
       log("info", "twitch_mode_ready", {
         channelUserId: authorization.channelUserId,
         channelLogin: authorization.channelLogin,
+        commandLimits: config.twitchChatCommandLimits,
         message: "Listening for chat messages that start with '!'. Press Ctrl+C to stop.",
       });
       return;

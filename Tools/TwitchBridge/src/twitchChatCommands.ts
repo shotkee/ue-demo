@@ -12,6 +12,7 @@ export type TwitchChatCommandErrorCode =
   | "invalid_identifier"
   | "invalid_target"
   | "unknown_target"
+  | "permission_denied"
   | "invalid_twitch_identity";
 
 export interface TwitchChatCommandTranslation {
@@ -36,8 +37,8 @@ const USAGE: Record<TwitchChatCommandName, string> = {
   run: "!run @<login|twitch_user_id>",
   hit: "!hit @<login|twitch_user_id>",
   go: "!go <object_id>",
-  stop: "!stop",
-  leave: "!leave",
+  stop: "!stop [@<login|twitch_user_id>]",
+  leave: "!leave [@<login|twitch_user_id>]",
 };
 
 export class TwitchChatCommandError extends Error {
@@ -206,17 +207,41 @@ export class TwitchChatCommandParser {
           },
         };
       case "stop":
-        requireArgumentCount(commandName, words, 0);
+      {
+        const commandActorId = this.resolveAdministrativeActor(
+          message,
+          words,
+          commandName,
+          actorId,
+        );
         return {
           chatCommand: commandName,
-          arenaCommand: { ...baseCommand, command: "stop", parameters: {} },
+          arenaCommand: {
+            ...baseCommand,
+            actorId: commandActorId,
+            command: "stop",
+            parameters: {},
+          },
         };
+      }
       case "leave":
-        requireArgumentCount(commandName, words, 0);
+      {
+        const commandActorId = this.resolveAdministrativeActor(
+          message,
+          words,
+          commandName,
+          actorId,
+        );
         return {
           chatCommand: commandName,
-          arenaCommand: { ...baseCommand, command: "leave", parameters: {} },
+          arenaCommand: {
+            ...baseCommand,
+            actorId: commandActorId,
+            command: "leave",
+            parameters: {},
+          },
         };
+      }
     }
   }
 
@@ -275,6 +300,32 @@ export class TwitchChatCommandParser {
       );
     }
     return twitchEntityId(userId);
+  }
+
+  private resolveAdministrativeActor(
+    message: TwitchChatMessage,
+    args: readonly string[],
+    commandName: "stop" | "leave",
+    ownActorId: string,
+  ): string {
+    if (args.length === 0) {
+      return ownActorId;
+    }
+    if (args.length !== 1) {
+      throw new TwitchChatCommandError(
+        "invalid_arguments",
+        `Command '!${commandName}' expects no arguments or one participant target, but received ${args.length}.`,
+        USAGE[commandName],
+      );
+    }
+    if (!message.isBroadcaster && !message.isModerator) {
+      throw new TwitchChatCommandError(
+        "permission_denied",
+        `Only the broadcaster or a moderator may use '!${commandName}' on another participant.`,
+        USAGE[commandName],
+      );
+    }
+    return this.resolveParticipantTarget(args[0] ?? "", commandName);
   }
 
   private isSupportedCommand(value: string): value is TwitchChatCommandName {

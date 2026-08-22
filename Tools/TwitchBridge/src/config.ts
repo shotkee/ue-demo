@@ -1,3 +1,8 @@
+import {
+  DEFAULT_TWITCH_CHAT_COMMAND_LIMITS,
+  type TwitchChatCommandLimits,
+} from "./twitchChatCommandProcessor.js";
+
 export type BridgeMode = "stdin" | "smoke" | "twitch";
 
 export interface BridgeConfig {
@@ -7,6 +12,7 @@ export interface BridgeConfig {
   queueLimit: number;
   queueTtlMs: number;
   statusTimeoutMs: number;
+  twitchChatCommandLimits: TwitchChatCommandLimits;
   mode: BridgeMode;
 }
 
@@ -149,6 +155,43 @@ export function loadConfig(
       1_000,
       300_000,
     ),
+    twitchChatCommandLimits: {
+      userCooldownMs: readInteger(
+        "ARENA_TWITCH_USER_COOLDOWN_MS",
+        environment.ARENA_TWITCH_USER_COOLDOWN_MS,
+        DEFAULT_TWITCH_CHAT_COMMAND_LIMITS.userCooldownMs,
+        0,
+        60_000,
+      ),
+      globalCommandsPerSecond: readInteger(
+        "ARENA_TWITCH_GLOBAL_COMMANDS_PER_SECOND",
+        environment.ARENA_TWITCH_GLOBAL_COMMANDS_PER_SECOND,
+        DEFAULT_TWITCH_CHAT_COMMAND_LIMITS.globalCommandsPerSecond,
+        1,
+        1_000,
+      ),
+      userQueueLimit: readInteger(
+        "ARENA_TWITCH_USER_QUEUE_LIMIT",
+        environment.ARENA_TWITCH_USER_QUEUE_LIMIT,
+        DEFAULT_TWITCH_CHAT_COMMAND_LIMITS.userQueueLimit,
+        1,
+        100,
+      ),
+      maxParticipants: readInteger(
+        "ARENA_TWITCH_MAX_PARTICIPANTS",
+        environment.ARENA_TWITCH_MAX_PARTICIPANTS,
+        DEFAULT_TWITCH_CHAT_COMMAND_LIMITS.maxParticipants,
+        1,
+        100,
+      ),
+      maxMessageLength: readInteger(
+        "ARENA_TWITCH_MAX_MESSAGE_LENGTH",
+        environment.ARENA_TWITCH_MAX_MESSAGE_LENGTH,
+        DEFAULT_TWITCH_CHAT_COMMAND_LIMITS.maxMessageLength,
+        1,
+        500,
+      ),
+    },
     mode: readMode(args, environment),
   };
 }

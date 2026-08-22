@@ -23,6 +23,8 @@ export interface TwitchChatMessage {
   chatterUserId: string;
   chatterUserLogin: string;
   chatterUserName: string;
+  isBroadcaster: boolean;
+  isModerator: boolean;
   text: string;
   receivedAt: string;
 }
@@ -137,21 +139,48 @@ function parseSession(payload: Record<string, unknown>): EventSubSession {
   };
 }
 
+function parseBadgeSetIds(value: unknown): Set<string> {
+  if (value === null || value === undefined) {
+    return new Set();
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("EventSub message contains invalid 'payload.event.badges'.");
+  }
+
+  const badgeSetIds = new Set<string>();
+  value.forEach((badge, index) => {
+    const badgeRecord = requiredRecord(badge, `payload.event.badges[${index}]`);
+    badgeSetIds.add(requiredString(
+      badgeRecord.set_id,
+      `payload.event.badges[${index}].set_id`,
+    ).toLowerCase());
+  });
+  return badgeSetIds;
+}
+
 function parseChatMessage(envelope: EventSubEnvelope): TwitchChatMessage {
   const event = requiredRecord(envelope.payload.event, "payload.event");
   const message = requiredRecord(event.message, "payload.event.message");
+  const broadcasterUserId = requiredString(
+    event.broadcaster_user_id,
+    "payload.event.broadcaster_user_id",
+  );
+  const chatterUserId = requiredString(event.chatter_user_id, "payload.event.chatter_user_id");
+  const badgeSetIds = parseBadgeSetIds(event.badges);
   return {
     deliveryMessageId: envelope.metadata.messageId,
     messageId: requiredString(event.message_id, "payload.event.message_id"),
-    broadcasterUserId: requiredString(event.broadcaster_user_id, "payload.event.broadcaster_user_id"),
+    broadcasterUserId,
     broadcasterUserLogin: requiredString(
       event.broadcaster_user_login,
       "payload.event.broadcaster_user_login",
     ),
     broadcasterUserName: requiredString(event.broadcaster_user_name, "payload.event.broadcaster_user_name"),
-    chatterUserId: requiredString(event.chatter_user_id, "payload.event.chatter_user_id"),
+    chatterUserId,
     chatterUserLogin: requiredString(event.chatter_user_login, "payload.event.chatter_user_login"),
     chatterUserName: requiredString(event.chatter_user_name, "payload.event.chatter_user_name"),
+    isBroadcaster: chatterUserId === broadcasterUserId || badgeSetIds.has("broadcaster"),
+    isModerator: badgeSetIds.has("moderator"),
     text: requiredString(message.text, "payload.event.message.text"),
     receivedAt: envelope.metadata.messageTimestamp,
   };

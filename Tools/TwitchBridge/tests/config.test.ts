@@ -12,6 +12,34 @@ test("uses loopback networking by default", () => {
   const config = loadConfig([], {});
   assert.equal(config.host, "127.0.0.1");
   assert.equal(config.allowPrivateNetworkConnections, false);
+  assert.deepEqual(config.twitchChatCommandLimits, {
+    userCooldownMs: 750,
+    globalCommandsPerSecond: 20,
+    userQueueLimit: 4,
+    maxParticipants: 20,
+    maxMessageLength: 200,
+  });
+});
+
+test("loads and validates Twitch chat safety limits", () => {
+  const config = loadConfig([], {
+    ARENA_TWITCH_USER_COOLDOWN_MS: "1250",
+    ARENA_TWITCH_GLOBAL_COMMANDS_PER_SECOND: "12",
+    ARENA_TWITCH_USER_QUEUE_LIMIT: "3",
+    ARENA_TWITCH_MAX_PARTICIPANTS: "16",
+    ARENA_TWITCH_MAX_MESSAGE_LENGTH: "180",
+  });
+  assert.deepEqual(config.twitchChatCommandLimits, {
+    userCooldownMs: 1250,
+    globalCommandsPerSecond: 12,
+    userQueueLimit: 3,
+    maxParticipants: 16,
+    maxMessageLength: 180,
+  });
+  assert.throws(
+    () => loadConfig([], { ARENA_TWITCH_GLOBAL_COMMANDS_PER_SECOND: "0" }),
+    /ARENA_TWITCH_GLOBAL_COMMANDS_PER_SECOND/,
+  );
 });
 
 test("rejects a private host unless LAN access is explicitly enabled", () => {

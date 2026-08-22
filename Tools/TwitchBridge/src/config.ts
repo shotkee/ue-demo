@@ -1,4 +1,4 @@
-export type BridgeMode = "stdin" | "smoke";
+export type BridgeMode = "stdin" | "smoke" | "twitch";
 
 export interface BridgeConfig {
   host: string;
@@ -72,9 +72,15 @@ function readInteger(
 }
 
 function readMode(args: readonly string[], environment: NodeJS.ProcessEnv): BridgeMode {
-  const explicitModes = args.filter((argument) => argument === "--stdin" || argument === "--smoke");
+  const explicitModes = args.filter(
+    (argument) => argument === "--stdin" || argument === "--smoke" || argument === "--twitch",
+  );
   if (explicitModes.length > 1) {
-    throw new Error("Use only one bridge mode: --stdin or --smoke.");
+    throw new Error("Use only one bridge mode: --stdin, --smoke, or --twitch.");
+  }
+
+  if (explicitModes[0] === "--twitch") {
+    return "twitch";
   }
 
   if (explicitModes[0] === "--smoke") {
@@ -86,8 +92,8 @@ function readMode(args: readonly string[], environment: NodeJS.ProcessEnv): Brid
   }
 
   const configuredMode = environment.ARENA_BRIDGE_MODE?.trim().toLowerCase() ?? "stdin";
-  if (configuredMode !== "stdin" && configuredMode !== "smoke") {
-    throw new Error("ARENA_BRIDGE_MODE must be 'stdin' or 'smoke'.");
+  if (configuredMode !== "stdin" && configuredMode !== "smoke" && configuredMode !== "twitch") {
+    throw new Error("ARENA_BRIDGE_MODE must be 'stdin', 'smoke', or 'twitch'.");
   }
 
   return configuredMode;
@@ -97,7 +103,9 @@ export function loadConfig(
   args: readonly string[] = process.argv.slice(2),
   environment: NodeJS.ProcessEnv = process.env,
 ): BridgeConfig {
-  const unknownArguments = args.filter((argument) => argument !== "--stdin" && argument !== "--smoke");
+  const unknownArguments = args.filter(
+    (argument) => argument !== "--stdin" && argument !== "--smoke" && argument !== "--twitch",
+  );
   if (unknownArguments.length > 0) {
     throw new Error(`Unknown argument: ${unknownArguments[0]}`);
   }

@@ -31,6 +31,12 @@ test("accepts a private host when LAN access is explicitly enabled", () => {
   assert.equal(config.allowPrivateNetworkConnections, true);
 });
 
+test("supports Twitch chat mode from either the command line or environment", () => {
+  assert.equal(loadConfig(["--twitch"], {}).mode, "twitch");
+  assert.equal(loadConfig([], { ARENA_BRIDGE_MODE: "twitch" }).mode, "twitch");
+  assert.throws(() => loadConfig(["--twitch", "--smoke"], {}), /only one bridge mode/);
+});
+
 test("always rejects public and wildcard hosts", () => {
   for (const host of ["8.8.8.8", "0.0.0.0"] as const) {
     assert.throws(() => loadConfig([], {

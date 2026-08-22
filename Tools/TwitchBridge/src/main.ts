@@ -64,7 +64,9 @@ async function main(): Promise<void> {
   const server = new ArenaBridgeServer(config);
   let eventSubClient: TwitchEventSubClient | undefined;
   let chatCommandProcessor: TwitchChatCommandProcessor | undefined;
+  let removeTwitchConnectionListener: (() => void) | undefined;
   let tokenValidationTimer: NodeJS.Timeout | undefined;
+  let metricsTimer: NodeJS.Timeout | undefined;
   let shutdownRequested = false;
 
   const refreshAuthorization = async (force: boolean): Promise<TwitchAuthorizationIdentity> => {
@@ -91,9 +93,16 @@ async function main(): Promise<void> {
       clearInterval(tokenValidationTimer);
       tokenValidationTimer = undefined;
     }
+    if (metricsTimer !== undefined) {
+      clearInterval(metricsTimer);
+      metricsTimer = undefined;
+    }
+    await eventSubClient?.stop();
+    removeTwitchConnectionListener?.();
+    removeTwitchConnectionListener = undefined;
+    chatCommandProcessor?.logMetrics("shutdown");
     chatCommandProcessor?.dispose();
     chatCommandProcessor = undefined;
-    await eventSubClient?.stop();
     await server.stop();
   };
 
@@ -120,12 +129,22 @@ async function main(): Promise<void> {
         server,
         config.twitchChatCommandLimits,
       );
+      removeTwitchConnectionListener = eventSubClient.onConnectionChange(
+        (state) => chatCommandProcessor?.handleTwitchConnectionState(state),
+      );
       eventSubClient.onCommand((message) => chatCommandProcessor?.handle(message));
       eventSubClient.onRevocation((revocation) => {
         process.exitCode = 1;
         void shutdown(`twitch_subscription_revoked:${revocation.status}`);
       });
       await eventSubClient.start();
+      chatCommandProcessor.logMetrics("startup");
+      if (config.metricsIntervalMs > 0) {
+        metricsTimer = setInterval(() => {
+          chatCommandProcessor?.logMetrics("periodic");
+        }, config.metricsIntervalMs);
+        metricsTimer.unref();
+      }
       tokenValidationTimer = setInterval(() => {
         void refreshAuthorization(true).catch(async (error: unknown) => {
           if (error instanceof TwitchReauthorizationRequiredError) {
@@ -146,6 +165,7 @@ async function main(): Promise<void> {
         channelUserId: authorization.channelUserId,
         channelLogin: authorization.channelLogin,
         commandLimits: config.twitchChatCommandLimits,
+        metricsIntervalMs: config.metricsIntervalMs,
         message: "Listening for chat messages that start with '!'. Press Ctrl+C to stop.",
       });
       return;

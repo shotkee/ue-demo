@@ -60,6 +60,7 @@ function assertChatError(
 
 class FakeArena implements ArenaCommandSink {
   public readonly commands: ArenaCommand[] = [];
+  public connected = false;
   private readonly statusListeners = new Set<(status: ArenaCommandStatus) => void>();
   private readonly connectionListeners = new Set<(connected: boolean) => void>();
   private readonly expiredListeners = new Set<(command: ArenaCommand) => void>();
@@ -91,6 +92,7 @@ class FakeArena implements ArenaCommandSink {
   }
 
   public emitConnection(connected: boolean): void {
+    this.connected = connected;
     for (const listener of this.connectionListeners) {
       listener(connected);
     }
@@ -393,5 +395,84 @@ test("enforces cooldown, global rate, queue, participant, and message limits", (
     assert.equal(lengthArena.commands[0]?.command, "spawn");
   } finally {
     lengthProcessor.dispose();
+  }
+});
+
+test("correlates Twitch commands with Unreal statuses and reports connection metrics", () => {
+  let now = 50_000;
+  const arena = new FakeArena();
+  const processor = new TwitchChatCommandProcessor(
+    arena,
+    PERMISSIVE_LIMITS,
+    undefined,
+    () => now,
+  );
+
+  try {
+    processor.handleTwitchConnectionState("connecting");
+    processor.handleTwitchConnectionState("connected");
+    arena.emitConnection(true);
+    processor.handle(chatMessage("1001", "alice", "!join", "observed-join", "Alice"));
+
+    let snapshot = processor.getMetricsSnapshot();
+    assert.equal(snapshot.messagesReceived, 1);
+    assert.equal(snapshot.commandsSubmitted, 1);
+    assert.equal(snapshot.activeCommands, 1);
+    assert.equal(snapshot.arenaConnectionState, "connected");
+    assert.equal(snapshot.twitchConnectionState, "connected");
+
+    const statuses: ArenaCommandStatus[] = [
+      { version: 1, requestId: "twitch:observed-join", status: "received", errorCode: null, message: "" },
+      { version: 1, requestId: "twitch:observed-join", status: "accepted", errorCode: null, message: "" },
+      { version: 1, requestId: "twitch:observed-join", status: "started", errorCode: null, message: "" },
+      { version: 1, requestId: "twitch:observed-join", status: "completed", errorCode: null, message: "Spawned." },
+    ];
+    for (const status of statuses) {
+      now += 25;
+      arena.emitStatus(status);
+    }
+
+    processor.handle(chatMessage("1001", "alice", "!unknown", "observed-invalid"));
+    processor.handleTwitchConnectionState("reconnecting");
+    processor.handleTwitchConnectionState("connected");
+    arena.emitConnection(false);
+    arena.emitConnection(true);
+
+    snapshot = processor.getMetricsSnapshot();
+    assert.equal(snapshot.messagesReceived, 2);
+    assert.equal(snapshot.commandsRejected, 1);
+    assert.equal(snapshot.bridgeRejectedCommands, 1);
+    assert.equal(snapshot.unrealReceivedStatuses, 1);
+    assert.equal(snapshot.unrealAcceptedStatuses, 1);
+    assert.equal(snapshot.unrealStartedStatuses, 1);
+    assert.equal(snapshot.commandsCompleted, 1);
+    assert.equal(snapshot.activeCommands, 0);
+    assert.equal(snapshot.trackedParticipants, 0);
+    assert.equal(snapshot.twitchReconnects, 1);
+    assert.equal(snapshot.arenaReconnects, 1);
+    assert.equal(snapshot.reconnections, 2);
+  } finally {
+    processor.dispose();
+  }
+});
+
+test("reports expired queued commands and commands lost on disconnect", () => {
+  const arena = new FakeArena();
+  const processor = new TwitchChatCommandProcessor(arena, PERMISSIVE_LIMITS);
+
+  try {
+    processor.handle(chatMessage("1001", "alice", "!goto north", "expires"));
+    const expiringCommand = arena.commands[0];
+    assert.ok(expiringCommand !== undefined);
+    arena.emitExpired(expiringCommand);
+    assert.equal(processor.getMetricsSnapshot().commandsExpired, 1);
+    assert.equal(processor.getMetricsSnapshot().activeCommands, 0);
+
+    processor.handle(chatMessage("1001", "alice", "!goto south", "disconnects"));
+    arena.emitConnection(false);
+    assert.equal(processor.getMetricsSnapshot().commandsLostOnDisconnect, 1);
+    assert.equal(processor.getMetricsSnapshot().activeCommands, 0);
+  } finally {
+    processor.dispose();
   }
 });

@@ -12,6 +12,7 @@ test("uses loopback networking by default", () => {
   const config = loadConfig([], {});
   assert.equal(config.host, "127.0.0.1");
   assert.equal(config.allowPrivateNetworkConnections, false);
+  assert.equal(config.metricsIntervalMs, 60_000);
   assert.deepEqual(config.twitchChatCommandLimits, {
     userCooldownMs: 750,
     globalCommandsPerSecond: 20,
@@ -39,6 +40,15 @@ test("loads and validates Twitch chat safety limits", () => {
   assert.throws(
     () => loadConfig([], { ARENA_TWITCH_GLOBAL_COMMANDS_PER_SECOND: "0" }),
     /ARENA_TWITCH_GLOBAL_COMMANDS_PER_SECOND/,
+  );
+});
+
+test("loads and validates the metrics reporting interval", () => {
+  assert.equal(loadConfig([], { ARENA_BRIDGE_METRICS_INTERVAL_MS: "5000" }).metricsIntervalMs, 5_000);
+  assert.equal(loadConfig([], { ARENA_BRIDGE_METRICS_INTERVAL_MS: "0" }).metricsIntervalMs, 0);
+  assert.throws(
+    () => loadConfig([], { ARENA_BRIDGE_METRICS_INTERVAL_MS: "3600001" }),
+    /ARENA_BRIDGE_METRICS_INTERVAL_MS/,
   );
 });
 

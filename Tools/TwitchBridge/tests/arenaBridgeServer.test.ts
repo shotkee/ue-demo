@@ -17,6 +17,7 @@ function createConfig(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
     queueLimit: 3,
     queueTtlMs: 5_000,
     statusTimeoutMs: 2_000,
+    metricsIntervalMs: 60_000,
     mode: "stdin",
     ...overrides,
     twitchChatCommandLimits: overrides.twitchChatCommandLimits

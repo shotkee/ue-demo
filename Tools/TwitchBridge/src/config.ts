@@ -12,6 +12,7 @@ export interface BridgeConfig {
   queueLimit: number;
   queueTtlMs: number;
   statusTimeoutMs: number;
+  metricsIntervalMs: number;
   twitchChatCommandLimits: TwitchChatCommandLimits;
   mode: BridgeMode;
 }
@@ -154,6 +155,13 @@ export function loadConfig(
       30_000,
       1_000,
       300_000,
+    ),
+    metricsIntervalMs: readInteger(
+      "ARENA_BRIDGE_METRICS_INTERVAL_MS",
+      environment.ARENA_BRIDGE_METRICS_INTERVAL_MS,
+      60_000,
+      0,
+      3_600_000,
     ),
     twitchChatCommandLimits: {
       userCooldownMs: readInteger(

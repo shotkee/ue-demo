@@ -14,7 +14,7 @@
     "twitch": "node --env-file=.env dist/src/main.js --twitch",
     "auth": "node --env-file=.env dist/src/authCli.js authorize",
     "auth:status": "node --env-file=.env dist/src/authCli.js status",
-    "test": "tsc -p tsconfig.json && node --test dist/tests/config.test.js dist/tests/arenaBridgeServer.test.js dist/tests/twitchAuth.test.js dist/tests/twitchEventSub.test.js"
+    "test": "tsc -p tsconfig.json && node --test dist/tests/config.test.js dist/tests/arenaBridgeServer.test.js dist/tests/twitchAuth.test.js dist/tests/twitchEventSub.test.js dist/tests/twitchChatCommands.test.js"
   },
   "dependencies": {
     "ws": "^8.18.3"

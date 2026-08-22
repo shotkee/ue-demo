@@ -8,6 +8,7 @@ import {
   type TwitchAuthorizationIdentity,
 } from "./twitchAuth.js";
 import { loadTwitchConfig } from "./twitchConfig.js";
+import { TwitchChatCommandProcessor } from "./twitchChatCommandProcessor.js";
 import { TwitchEventSubClient } from "./twitchEventSub.js";
 
 const TOKEN_VALIDATION_INTERVAL_MS = 60 * 60 * 1_000;
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
   let authorizationValidatedAt = Date.now();
   const server = new ArenaBridgeServer(config);
   let eventSubClient: TwitchEventSubClient | undefined;
+  let chatCommandProcessor: TwitchChatCommandProcessor | undefined;
   let tokenValidationTimer: NodeJS.Timeout | undefined;
   let shutdownRequested = false;
 
@@ -89,6 +91,8 @@ async function main(): Promise<void> {
       clearInterval(tokenValidationTimer);
       tokenValidationTimer = undefined;
     }
+    chatCommandProcessor?.dispose();
+    chatCommandProcessor = undefined;
     await eventSubClient?.stop();
     await server.stop();
   };
@@ -112,6 +116,8 @@ async function main(): Promise<void> {
       }
 
       eventSubClient = new TwitchEventSubClient(twitchConfig.clientId, () => refreshAuthorization(false));
+      chatCommandProcessor = new TwitchChatCommandProcessor(server);
+      eventSubClient.onCommand((message) => chatCommandProcessor?.handle(message));
       eventSubClient.onRevocation((revocation) => {
         process.exitCode = 1;
         void shutdown(`twitch_subscription_revoked:${revocation.status}`);

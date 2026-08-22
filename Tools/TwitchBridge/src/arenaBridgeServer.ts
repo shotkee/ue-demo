@@ -17,6 +17,7 @@ interface QueuedCommand {
 interface BridgeEvents {
   status: [ArenaCommandStatus];
   connection: [boolean];
+  expired: [ArenaCommand];
 }
 
 export class ArenaBridgeServer {
@@ -125,6 +126,11 @@ export class ArenaBridgeServer {
   public onConnectionChange(listener: (connected: boolean) => void): () => void {
     this.events.on("connection", listener);
     return () => this.events.off("connection", listener);
+  }
+
+  public onCommandExpired(listener: (command: ArenaCommand) => void): () => void {
+    this.events.on("expired", listener);
+    return () => this.events.off("expired", listener);
   }
 
   public send(command: ArenaCommand): SendDisposition {
@@ -259,6 +265,7 @@ export class ArenaBridgeServer {
           actorId: expiredCommand.command.actorId,
           command: expiredCommand.command.command,
         });
+        this.events.emit("expired", expiredCommand.command);
       }
     }
   }

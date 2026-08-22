@@ -133,3 +133,24 @@ test("allows only one active Unreal Engine connection", async () => {
     await server.stop();
   }
 });
+
+test("reports a queued command when its reconnect deadline expires", async () => {
+  const server = new ArenaBridgeServer(createConfig({ queueTtlMs: 100 }));
+  await server.start();
+
+  try {
+    const command = createCommand("expired-command");
+    const expired = new Promise<ArenaCommand>((resolve) => {
+      const removeListener = server.onCommandExpired((expiredCommand) => {
+        removeListener();
+        resolve(expiredCommand);
+      });
+    });
+    assert.equal(server.send(command), "queued");
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assert.equal(server.queuedCommandCount, 0);
+    assert.deepEqual(await expired, command);
+  } finally {
+    await server.stop();
+  }
+});

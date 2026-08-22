@@ -18,9 +18,37 @@
 
 Проверенная конфигурация Windows и подробная инструкция по установке находятся в [how_to_install_toolchain.md](how_to_install_toolchain.md).
 
+## Автоматическая настройка Windows
+
+Корневой скрипт `setup.ps1` подготавливает одну Windows-машину одновременно для Unreal Engine и TwitchBridge. Он устанавливает или проверяет Git, Node.js LTS, npm и Visual Studio Build Tools 2022 с компонентами для UE 5.8, создаёт локальный `.env`, устанавливает зависимости моста, запускает его тесты, генерирует файлы Unreal-проекта, собирает `DemoEditor` и выполняет Twitch-авторизацию.
+
+Установка самого Unreal Engine остаётся интерактивной: сначала установите **Unreal Engine 5.8.1** через Epic Games Launcher. После этого откройте **PowerShell от имени администратора**, перейдите в корень клона и выполните:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+Скрипт безопасно запускать повторно: установленные компоненты будут проверены, существующая Twitch-авторизация сохранится, а локальный `.env` не попадёт в Git. Для нестандартного расположения Unreal Engine укажите каталог явно:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 `
+  -UnrealEngineRoot "D:\Epic Games\UE_5.8"
+```
+
+Дополнительные параметры:
+
+| Параметр | Назначение |
+| --- | --- |
+| `-SkipBuild` | сгенерировать файлы проекта, но не собирать `DemoEditor` |
+| `-SkipTests` | не запускать автоматические тесты TwitchBridge |
+| `-SkipTwitchAuthorization` | подготовить мост без интерактивной OAuth-авторизации |
+| `-ResetBridgeEnvironment` | заново создать локальный `.env` из `.env.example` |
+
+Для сценария на одной машине скрипт всегда устанавливает безопасный локальный адрес `ws://127.0.0.1:8080` одновременно в `.env` моста и локальном Unreal-конфиге. Отслеживаемый `Config/DefaultGame.ini` при этом не изменяется. Если Visual Studio Installer запросит перезагрузку, перезагрузите Windows и повторно выполните ту же команду.
+
 ## Развёртывание проекта из чистого клона
 
-Ниже приведена проверенная процедура для Windows. Она не требует открытия `.sln` и установки полной Visual Studio, если уже установлены Visual Studio Build Tools с MSVC и Windows SDK.
+Ниже приведена ручная процедура для Windows. Для автоматической подготовки используйте `setup.ps1` из предыдущего раздела. Полная Visual Studio не требуется: достаточно Visual Studio Build Tools с MSVC и Windows SDK.
 
 ### 1. Клонирование репозитория
 

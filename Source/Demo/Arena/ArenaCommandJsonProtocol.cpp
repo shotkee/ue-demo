@@ -17,6 +17,7 @@ namespace ArenaCommandJsonProtocol
 	const FString ParametersField = TEXT("parameters");
 
 	const FString DisplayNameField = TEXT("displayName");
+	const FString DisplayNameColorField = TEXT("displayNameColor");
 	const FString TargetIdField = TEXT("targetId");
 	const FString InteractionPointIdField = TEXT("interactionPointId");
 	const FString ActionIdField = TEXT("actionId");
@@ -436,7 +437,7 @@ bool FArenaCommandJsonProtocol::TryParseCommand(
 	if (CommandName == TEXT("spawn"))
 	{
 		OutCommand.CommandType = EArenaCommandType::Spawn;
-		const TSet<FString> AllowedFields = {DisplayNameField};
+		const TSet<FString> AllowedFields = {DisplayNameField, DisplayNameColorField};
 		if (!HasOnlyFields(*Parameters, AllowedFields, FieldError))
 		{
 			return SetParseError(
@@ -465,6 +466,45 @@ bool FArenaCommandJsonProtocol::TryParseCommand(
 
 		OutCommand.DisplayName = FText::FromString(
 			bDisplayNameWasPresent ? DisplayName : OutCommand.ActorId);
+
+		FString DisplayNameColor;
+		bool bDisplayNameColorWasPresent = false;
+		if (!TryReadOptionalString(
+			*Parameters,
+			DisplayNameColorField,
+			7,
+			DisplayNameColor,
+			bDisplayNameColorWasPresent,
+			FieldError))
+		{
+			return SetParseError(
+				EArenaCommandError::InvalidRequest,
+				FieldError,
+				OutErrorCode,
+				OutMessage);
+		}
+
+		if (bDisplayNameColorWasPresent)
+		{
+			bool bIsValidColor = DisplayNameColor.Len() == 7 && DisplayNameColor[0] == TEXT('#');
+			for (int32 Index = 1; bIsValidColor && Index < DisplayNameColor.Len(); ++Index)
+			{
+				const TCHAR Character = DisplayNameColor[Index];
+				bIsValidColor = (Character >= TEXT('0') && Character <= TEXT('9'))
+					|| (Character >= TEXT('A') && Character <= TEXT('F'))
+					|| (Character >= TEXT('a') && Character <= TEXT('f'));
+			}
+			if (!bIsValidColor)
+			{
+				return SetParseError(
+					EArenaCommandError::InvalidRequest,
+					TEXT("Field 'displayNameColor' must use the #RRGGBB format."),
+					OutErrorCode,
+					OutMessage);
+			}
+			OutCommand.DisplayNameColor = FColor::FromHex(DisplayNameColor);
+			OutCommand.DisplayNameColor.A = 255;
+		}
 		return true;
 	}
 

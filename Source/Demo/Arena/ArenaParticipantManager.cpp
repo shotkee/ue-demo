@@ -637,6 +637,8 @@ FArenaCommandResult AArenaParticipantManager::ProcessSpawnCommand(const FArenaCo
 			Message);
 	}
 
+	Participant->SetArenaDisplayNameColor(Command.DisplayNameColor);
+
 	RecordCommandState(Command, EArenaCommandStatus::Completed);
 	return MakeCommandResult(
 		true,

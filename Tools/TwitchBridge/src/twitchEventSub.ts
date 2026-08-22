@@ -13,6 +13,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const MESSAGE_ID_TTL_MS = 10 * 60 * 1_000;
 const MAX_RECENT_MESSAGE_IDS = 5_000;
 const DEFAULT_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
+const TWITCH_CHAT_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/u;
 
 export interface TwitchChatMessage {
   deliveryMessageId: string;
@@ -23,6 +24,7 @@ export interface TwitchChatMessage {
   chatterUserId: string;
   chatterUserLogin: string;
   chatterUserName: string;
+  color: string | undefined;
   isBroadcaster: boolean;
   isModerator: boolean;
   text: string;
@@ -158,6 +160,16 @@ function parseBadgeSetIds(value: unknown): Set<string> {
   return badgeSetIds;
 }
 
+function parseChatColor(value: unknown): string | undefined {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+  if (typeof value !== "string" || !TWITCH_CHAT_COLOR_PATTERN.test(value)) {
+    throw new Error("EventSub message contains invalid 'payload.event.color'.");
+  }
+  return value.toUpperCase();
+}
+
 function parseChatMessage(envelope: EventSubEnvelope): TwitchChatMessage {
   const event = requiredRecord(envelope.payload.event, "payload.event");
   const message = requiredRecord(event.message, "payload.event.message");
@@ -179,6 +191,7 @@ function parseChatMessage(envelope: EventSubEnvelope): TwitchChatMessage {
     chatterUserId,
     chatterUserLogin: requiredString(event.chatter_user_login, "payload.event.chatter_user_login"),
     chatterUserName: requiredString(event.chatter_user_name, "payload.event.chatter_user_name"),
+    color: parseChatColor(event.color),
     isBroadcaster: chatterUserId === broadcasterUserId || badgeSetIds.has("broadcaster"),
     isModerator: badgeSetIds.has("moderator"),
     text: requiredString(message.text, "payload.event.message.text"),

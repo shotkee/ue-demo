@@ -150,7 +150,10 @@ export class TwitchChatCommandParser {
           arenaCommand: {
             ...baseCommand,
             command: "spawn",
-            parameters: { displayName: message.chatterUserName },
+            parameters: {
+              displayName: message.chatterUserName,
+              ...(message.color === undefined ? {} : { displayNameColor: message.color }),
+            },
           },
         };
       case "goto":

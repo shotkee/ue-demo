@@ -54,6 +54,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Arena|Participant")
 	bool SetArenaDisplayName(const FText& InDisplayName);
 
+	UFUNCTION(BlueprintCallable, Category = "Arena|Participant")
+	void SetArenaDisplayNameColor(FColor InDisplayNameColor);
+
 	UFUNCTION(BlueprintCallable, Category = "Arena|Movement")
 	bool MoveToArenaLocation(const FVector& Destination, EArenaMovementMode MovementMode = EArenaMovementMode::Walk);
 

@@ -9,6 +9,7 @@
 - максимальная длина JSON-сообщения: 16 384 символа;
 - максимальная длина `requestId`, `actorId`, `targetId`, `interactionPointId` и `actionId`: 128 символов;
 - максимальная длина `displayName`: 64 символа;
+- `displayNameColor`, если указан, должен иметь формат `#RRGGBB`;
 - неизвестные поля, команды и значения параметров отклоняются;
 - один `requestId` может выполнить команду только один раз в пределах игровой сессии.
 
@@ -27,7 +28,7 @@
 
 | `command` | Обязательные параметры | Необязательные параметры |
 | --- | --- | --- |
-| `spawn` | — | `displayName`; по умолчанию используется `actorId`. |
+| `spawn` | — | `displayName`; по умолчанию используется `actorId`. `displayNameColor`: цвет надписи в формате `#RRGGBB`, по умолчанию `#FFFFFF`. |
 | `move_to_point` | `targetId` | `movementMode`: `walk` или `run`, по умолчанию `walk`. |
 | `move_to_actor` | `targetId` | `movementMode`: `walk` или `run`, по умолчанию `walk`. |
 | `approach_object` | `targetId` | `interactionPointId`, по умолчанию `default`; `movementMode`, по умолчанию `walk`. |

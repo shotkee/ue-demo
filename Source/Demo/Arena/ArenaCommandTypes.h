@@ -100,6 +100,9 @@ struct DEMO_API FArenaCommand
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Command")
 	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arena|Command")
+	FColor DisplayNameColor = FColor::White;
 };
 
 USTRUCT(BlueprintType)

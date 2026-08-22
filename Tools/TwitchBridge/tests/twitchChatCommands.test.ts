@@ -21,7 +21,7 @@ function chatMessage(
   text: string,
   messageId: string,
   displayName = login,
-  roles: { isBroadcaster?: boolean; isModerator?: boolean } = {},
+  roles: { isBroadcaster?: boolean; isModerator?: boolean; color?: string } = {},
 ): TwitchChatMessage {
   return {
     deliveryMessageId: `delivery-${messageId}`,
@@ -32,6 +32,7 @@ function chatMessage(
     chatterUserId: userId,
     chatterUserLogin: login,
     chatterUserName: displayName,
+    color: roles.color,
     isBroadcaster: roles.isBroadcaster ?? userId === "9000",
     isModerator: roles.isModerator ?? false,
     text,
@@ -107,7 +108,14 @@ class FakeArena implements ArenaCommandSink {
 
 test("translates the fixed chat syntax into the existing arena JSON protocol", () => {
   const parser = new TwitchChatCommandParser();
-  const aliceJoin = parser.parse(chatMessage("1001", "alice", "!JOIN", "join-1", "Alice"));
+  const aliceJoin = parser.parse(chatMessage(
+    "1001",
+    "alice",
+    "!JOIN",
+    "join-1",
+    "Alice",
+    { color: "#1E90FF" },
+  ));
   assert.deepEqual(aliceJoin, {
     chatCommand: "join",
     arenaCommand: {
@@ -115,9 +123,12 @@ test("translates the fixed chat syntax into the existing arena JSON protocol", (
       requestId: "twitch:join-1",
       actorId: "twitch:1001",
       command: "spawn",
-      parameters: { displayName: "Alice" },
+      parameters: { displayName: "Alice", displayNameColor: "#1E90FF" },
     },
   });
+
+  const colorlessJoin = parser.parse(chatMessage("1002", "colorless", "!join", "join-2", "Colorless"));
+  assert.deepEqual(colorlessJoin.arenaCommand.parameters, { displayName: "Colorless" });
 
   const cases = [
     {

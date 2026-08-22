@@ -75,6 +75,7 @@ function chatNotification(
     chatterUserLogin?: string;
     chatterUserName?: string;
     badges?: Array<Record<string, unknown>>;
+    color?: string;
   } = {},
 ): string {
   return envelope("notification", deliveryId, {
@@ -91,6 +92,7 @@ function chatNotification(
       chatter_user_id: options.chatterUserId ?? "2002",
       chatter_user_login: options.chatterUserLogin ?? "alice",
       chatter_user_name: options.chatterUserName ?? "Alice",
+      color: options.color ?? "#1e90ff",
       badges: options.badges ?? [],
       message_id: messageId,
       message: { text },
@@ -196,6 +198,7 @@ test("subscribes to chat, filters non-commands, deduplicates messages, and repor
     assert.equal(commands[0]?.chatterUserId, "2002");
     assert.equal(commands[0]?.chatterUserLogin, "alice");
     assert.equal(commands[0]?.chatterUserName, "Alice");
+    assert.equal(commands[0]?.color, "#1E90FF");
     assert.equal(commands[0]?.isBroadcaster, false);
     assert.equal(commands[0]?.isModerator, true);
     assert.equal(commands[0]?.text, "  !join");

@@ -183,6 +183,14 @@ bool AArenaMannequinCharacter::SetArenaDisplayName(const FText& InDisplayName)
 	return true;
 }
 
+void AArenaMannequinCharacter::SetArenaDisplayNameColor(const FColor InDisplayNameColor)
+{
+	if (IsValid(NameLabel))
+	{
+		NameLabel->SetTextRenderColor(InDisplayNameColor);
+	}
+}
+
 bool AArenaMannequinCharacter::MoveToArenaLocation(const FVector& Destination, const EArenaMovementMode MovementMode)
 {
 	SetArenaMovementMode(MovementMode);

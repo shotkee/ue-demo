@@ -63,6 +63,20 @@ bool FArenaJsonProtocolValidCommandsTest::RunTest(const FString& Parameters)
 			Message));
 	TestEqual(TEXT("spawn command type"), Command.CommandType, EArenaCommandType::Spawn);
 	TestEqual(TEXT("spawn display name defaults to actor ID"), Command.DisplayName.ToString(), FString(TEXT("alice")));
+	TestTrue(TEXT("spawn display name color defaults to white"), Command.DisplayNameColor == FColor::White);
+
+	const FString ColoredSpawnJson = TEXT(
+		"{\"version\":1,\"requestId\":\"spawn-2\",\"actorId\":\"bob\","
+		"\"command\":\"spawn\",\"parameters\":{"
+		"\"displayName\":\"Bob\",\"displayNameColor\":\"#1e90ff\"}}");
+	TestTrue(
+		TEXT("spawn parses a Twitch display name color"),
+		FArenaCommandJsonProtocol::TryParseCommand(
+			ColoredSpawnJson,
+			Command,
+			ErrorCode,
+			Message));
+	TestTrue(TEXT("spawn display name color"), Command.DisplayNameColor == FColor(0x1e, 0x90, 0xff));
 
 	const FString ApproachObjectJson = TEXT(
 		"{\"version\":1,\"requestId\":\"approach-1\",\"actorId\":\"alice\"," 
@@ -161,6 +175,10 @@ bool FArenaJsonProtocolInvalidMessagesTest::RunTest(const FString& Parameters)
 	ExpectError(
 		TEXT("invalid movement mode"),
 		TEXT("{\"version\":1,\"requestId\":\"bad-mode\",\"actorId\":\"alice\",\"command\":\"move_to_point\",\"parameters\":{\"targetId\":\"center\",\"movementMode\":\"fly\"}}"),
+		EArenaCommandError::InvalidRequest);
+	ExpectError(
+		TEXT("invalid display name color"),
+		TEXT("{\"version\":1,\"requestId\":\"bad-color\",\"actorId\":\"alice\",\"command\":\"spawn\",\"parameters\":{\"displayNameColor\":\"blue\"}}"),
 		EArenaCommandError::InvalidRequest);
 	ExpectError(
 		TEXT("unknown parameter"),

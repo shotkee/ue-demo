@@ -20,6 +20,15 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Connection")
 	FString ServerUrl = TEXT("ws://127.0.0.1:8080");
 
+	UPROPERTY(
+		Config,
+		EditAnywhere,
+		Category = "Connection",
+		meta = (
+			DisplayName = "Allow Private Network Connections",
+			ToolTip = "Allows Server URL to use a private IPv4 address (10/8, 172.16/12, or 192.168/16). Public addresses remain blocked."))
+	bool bAllowPrivateNetworkConnections = false;
+
 	UPROPERTY(Config, EditAnywhere, Category = "Reconnection", meta = (ClampMin = "0.1", Units = "s"))
 	float InitialReconnectDelaySeconds = 1.0f;
 

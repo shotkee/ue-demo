@@ -1,0 +1,24 @@
+{
+  "name": "arena-twitch-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local command bridge between Twitch chat and the Unreal Engine arena.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/main.js",
+    "start:env": "node --env-file=.env dist/src/main.js",
+    "test": "tsc -p tsconfig.json && node --test dist/tests/config.test.js dist/tests/arenaBridgeServer.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.2"
+  }
+}

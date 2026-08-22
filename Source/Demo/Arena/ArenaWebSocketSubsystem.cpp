@@ -13,6 +13,162 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogArenaWebSocket, Log, All);
 
+namespace ArenaWebSocketUrlValidation
+{
+	bool IsValidPort(const FString& PortText)
+	{
+		if (PortText.IsEmpty())
+		{
+			return false;
+		}
+
+		for (const TCHAR Character : PortText)
+		{
+			if (!FChar::IsDigit(Character))
+			{
+				return false;
+			}
+		}
+
+		const int64 Port = FCString::Atoi64(*PortText);
+		return Port >= 1 && Port <= 65535;
+	}
+
+	bool TryExtractHost(const FString& ServerUrl, FString& OutHost)
+	{
+		FString NormalizedUrl = ServerUrl;
+		NormalizedUrl.TrimStartAndEndInline();
+		NormalizedUrl.ToLowerInline();
+
+		FString AuthorityAndPath;
+		if (NormalizedUrl.StartsWith(TEXT("ws://")))
+		{
+			AuthorityAndPath = NormalizedUrl.Mid(5);
+		}
+		else if (NormalizedUrl.StartsWith(TEXT("wss://")))
+		{
+			AuthorityAndPath = NormalizedUrl.Mid(6);
+		}
+		else
+		{
+			return false;
+		}
+
+		int32 AuthorityLength = AuthorityAndPath.Len();
+		for (const TCHAR* Separator : {TEXT("/"), TEXT("?"), TEXT("#")})
+		{
+			const int32 SeparatorIndex = AuthorityAndPath.Find(Separator);
+			if (SeparatorIndex != INDEX_NONE)
+			{
+				AuthorityLength = FMath::Min(AuthorityLength, SeparatorIndex);
+			}
+		}
+
+		const FString Authority = AuthorityAndPath.Left(AuthorityLength);
+		if (Authority.IsEmpty() || Authority.Contains(TEXT("@")))
+		{
+			return false;
+		}
+
+		FString PortText;
+		if (Authority.StartsWith(TEXT("[")))
+		{
+			int32 ClosingBracketIndex = INDEX_NONE;
+			if (!Authority.FindChar(TEXT(']'), ClosingBracketIndex))
+			{
+				return false;
+			}
+
+			OutHost = Authority.Mid(1, ClosingBracketIndex - 1);
+			const FString Remainder = Authority.Mid(ClosingBracketIndex + 1);
+			if (!Remainder.IsEmpty())
+			{
+				if (!Remainder.StartsWith(TEXT(":")))
+				{
+					return false;
+				}
+				PortText = Remainder.Mid(1);
+				if (!IsValidPort(PortText))
+				{
+					return false;
+				}
+			}
+		}
+		else
+		{
+			int32 ColonIndex = INDEX_NONE;
+			if (Authority.FindLastChar(TEXT(':'), ColonIndex))
+			{
+				OutHost = Authority.Left(ColonIndex);
+				if (OutHost.Contains(TEXT(":")))
+				{
+					return false;
+				}
+				PortText = Authority.Mid(ColonIndex + 1);
+				if (!IsValidPort(PortText))
+				{
+					return false;
+				}
+			}
+			else
+			{
+				OutHost = Authority;
+			}
+		}
+
+		return !OutHost.IsEmpty();
+	}
+
+	bool TryParseIpv4Address(const FString& Host, TArray<int32>& OutOctets)
+	{
+		OutOctets.Reset();
+		TArray<FString> Parts;
+		Host.ParseIntoArray(Parts, TEXT("."), false);
+		if (Parts.Num() != 4)
+		{
+			return false;
+		}
+
+		for (const FString& Part : Parts)
+		{
+			if (Part.IsEmpty())
+			{
+				return false;
+			}
+
+			for (const TCHAR Character : Part)
+			{
+				if (!FChar::IsDigit(Character))
+				{
+					return false;
+				}
+			}
+
+			const int32 Octet = FCString::Atoi(*Part);
+			if (Octet < 0 || Octet > 255)
+			{
+				return false;
+			}
+			OutOctets.Add(Octet);
+		}
+
+		return true;
+	}
+
+	bool IsPrivateIpv4Address(const FString& Host)
+	{
+		TArray<int32> Octets;
+		if (!TryParseIpv4Address(Host, Octets))
+		{
+			return false;
+		}
+
+		return Octets[0] == 10
+			|| (Octets[0] == 172 && Octets[1] >= 16 && Octets[1] <= 31)
+			|| (Octets[0] == 192 && Octets[1] == 168);
+	}
+}
+
 void UArenaWebSocketSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -96,14 +252,16 @@ void UArenaWebSocketSubsystem::BeginConnection()
 	}
 
 	const UArenaWebSocketSettings* Settings = GetDefault<UArenaWebSocketSettings>();
-	if (!IsLoopbackServerUrl(Settings->ServerUrl))
+	if (!IsAllowedServerUrl(
+		Settings->ServerUrl,
+		Settings->bAllowPrivateNetworkConnections))
 	{
 		bShouldReconnect = false;
 		SetConnectionState(EArenaWebSocketConnectionState::Disconnected);
 		UE_LOG(
 			LogArenaWebSocket,
 			Error,
-			TEXT("ServerUrl '%s' is not a loopback WebSocket URL. Use 127.0.0.1, localhost, or [::1]."),
+			TEXT("ServerUrl '%s' is not allowed. Use a loopback URL, or enable Allow Private Network Connections for a private IPv4 address."),
 			*Settings->ServerUrl);
 		return;
 	}
@@ -325,39 +483,23 @@ void UArenaWebSocketSubsystem::UnbindParticipantManager()
 	BoundParticipantManager.Reset();
 }
 
-bool UArenaWebSocketSubsystem::IsLoopbackServerUrl(const FString& ServerUrl)
+bool UArenaWebSocketSubsystem::IsAllowedServerUrl(
+	const FString& ServerUrl,
+	const bool bAllowPrivateNetworkConnections)
 {
-	FString NormalizedUrl = ServerUrl;
-	NormalizedUrl.TrimStartAndEndInline();
-	NormalizedUrl.ToLowerInline();
-
-	const TArray<FString> AllowedPrefixes = {
-		TEXT("ws://127.0.0.1"),
-		TEXT("wss://127.0.0.1"),
-		TEXT("ws://localhost"),
-		TEXT("wss://localhost"),
-		TEXT("ws://[::1]"),
-		TEXT("wss://[::1]")};
-	for (const FString& Prefix : AllowedPrefixes)
+	FString Host;
+	if (!ArenaWebSocketUrlValidation::TryExtractHost(ServerUrl, Host))
 	{
-		if (!NormalizedUrl.StartsWith(Prefix))
-		{
-			continue;
-		}
-
-		if (NormalizedUrl.Len() == Prefix.Len())
-		{
-			return true;
-		}
-
-		const TCHAR NextCharacter = NormalizedUrl[Prefix.Len()];
-		if (NextCharacter == TEXT(':') || NextCharacter == TEXT('/'))
-		{
-			return true;
-		}
+		return false;
 	}
 
-	return false;
+	if (Host == TEXT("localhost") || Host == TEXT("127.0.0.1") || Host == TEXT("::1"))
+	{
+		return true;
+	}
+
+	return bAllowPrivateNetworkConnections
+		&& ArenaWebSocketUrlValidation::IsPrivateIpv4Address(Host);
 }
 
 void UArenaWebSocketSubsystem::HandleSocketConnected()

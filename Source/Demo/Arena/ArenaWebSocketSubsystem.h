@@ -64,7 +64,7 @@ private:
 	void ProcessIncomingMessage(const FString& Message);
 	AArenaParticipantManager* ResolveParticipantManager();
 	void UnbindParticipantManager();
-	static bool IsLoopbackServerUrl(const FString& ServerUrl);
+	static bool IsAllowedServerUrl(const FString& ServerUrl, bool bAllowPrivateNetworkConnections);
 
 	void HandleSocketConnected();
 	void HandleSocketConnectionError(const FString& Error);

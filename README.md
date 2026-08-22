@@ -80,6 +80,35 @@ WebSocket smoke test completed successfully.
 
 Остановите Play и сервер сочетанием `Ctrl+C`. После проверки команда `git status --short` не должна показывать изменений отслеживаемых файлов.
 
+## Настройка адреса TwitchBridge
+
+Unreal Engine является WebSocket-клиентом и подключается к адресу TwitchBridge. Чтобы найти настройки в Unreal Editor:
+
+1. Остановите `Play`, если проект запущен.
+2. В верхнем меню выберите `Edit > Project Settings`.
+3. В поле поиска слева введите `Arena WebSocket`.
+4. В результатах откройте `Game > Arena WebSocket`.
+5. Справа раскройте секцию `Connection`. Флаг `Allow Private Network Connections` расположен сразу под полем `Server URL`.
+
+Если раздел или флаг не появился после сборки C++-модуля, полностью закройте и заново откройте Unreal Editor.
+
+Если Unreal Engine и TwitchBridge работают на одном компьютере, оставьте значения по умолчанию:
+
+```text
+Server URL: ws://127.0.0.1:8080
+Allow Private Network Connections: выключено
+```
+
+Если TwitchBridge работает на другом компьютере в той же локальной сети:
+
+1. Включите `Allow Private Network Connections`.
+2. Укажите приватный IPv4-адрес компьютера с мостом, например `ws://192.168.1.100:8080`.
+3. В локальном `.env` моста укажите тот же IP и включите `ARENA_BRIDGE_ALLOW_PRIVATE_NETWORK_CONNECTIONS=true`.
+
+Значения по умолчанию отслеживаются Git в `Config/DefaultGame.ini`. Локальное переопределение Unreal сохраняется в `Saved/Config/WindowsEditor/Game.ini`; каталог `Saved` намеренно исключён из Git, чтобы IP одного компьютера не применялся ко всем клонам проекта.
+
+Полная инструкция по установке, smoke-тесту и настройке локальной сети приведена в [Tools/TwitchBridge/README.md](Tools/TwitchBridge/README.md).
+
 ## Сборка из PowerShell в Windows
 
 Для сборки не требуется открывать `.sln` или полную Visual Studio: достаточно установленных Visual Studio Build Tools с MSVC и Windows SDK.

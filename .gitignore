@@ -32,3 +32,9 @@ Desktop.ini
 *.tmp
 *.temp
 *~
+
+# Node.js tools and local secrets
+**/node_modules/
+**/dist/
+**/.env
+!**/.env.example

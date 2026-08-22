@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { loadConfig } from "../src/config.js";
+import {
+  DEFAULT_TWITCH_CLIENT_ID,
+  TWITCH_READ_CHAT_SCOPE,
+  loadTwitchConfig,
+} from "../src/twitchConfig.js";
 
 test("uses loopback networking by default", () => {
   const config = loadConfig([], {});
@@ -33,4 +38,18 @@ test("always rejects public and wildcard hosts", () => {
       ARENA_BRIDGE_ALLOW_PRIVATE_NETWORK_CONNECTIONS: "true",
     }));
   }
+});
+
+test("uses the shared public Twitch application without storing a secret", () => {
+  const config = loadTwitchConfig({}, "/tmp/arena-twitch-bridge-test");
+
+  assert.equal(config.clientId, DEFAULT_TWITCH_CLIENT_ID);
+  assert.deepEqual(config.scopes, [TWITCH_READ_CHAT_SCOPE]);
+  assert.equal(config.channelLogin, undefined);
+  assert.equal(config.tokenFilePath, "/tmp/arena-twitch-bridge-test/.arena-twitch-bridge/twitch-auth.json");
+});
+
+test("normalizes an explicitly configured Twitch channel", () => {
+  const config = loadTwitchConfig({ TWITCH_CHANNEL_LOGIN: "#ShotKee" }, "/tmp/test");
+  assert.equal(config.channelLogin, "shotkee");
 });

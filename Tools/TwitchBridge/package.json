@@ -11,7 +11,9 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/main.js",
     "start:env": "node --env-file=.env dist/src/main.js",
-    "test": "tsc -p tsconfig.json && node --test dist/tests/config.test.js dist/tests/arenaBridgeServer.test.js"
+    "auth": "node --env-file=.env dist/src/authCli.js authorize",
+    "auth:status": "node --env-file=.env dist/src/authCli.js status",
+    "test": "tsc -p tsconfig.json && node --test dist/tests/config.test.js dist/tests/arenaBridgeServer.test.js dist/tests/twitchAuth.test.js"
   },
   "dependencies": {
     "ws": "^8.18.3"

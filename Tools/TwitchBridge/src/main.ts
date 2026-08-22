@@ -2,9 +2,36 @@ import { ArenaBridgeServer } from "./arenaBridgeServer.js";
 import { loadConfig } from "./config.js";
 import { errorFields, log } from "./logger.js";
 import { runSmokeMode, runStdinMode } from "./testMode.js";
+import { TwitchAuthClient, TwitchReauthorizationRequiredError } from "./twitchAuth.js";
+import { loadTwitchConfig } from "./twitchConfig.js";
+
+async function checkTwitchAuthorization(): Promise<void> {
+  try {
+    const identity = await new TwitchAuthClient(loadTwitchConfig()).loadAuthorization();
+    log("info", "twitch_authorization_ready", {
+      authorizedUserId: identity.authorizedUserId,
+      authorizedUserLogin: identity.authorizedUserLogin,
+      channelUserId: identity.channelUserId,
+      channelLogin: identity.channelLogin,
+      scopes: identity.scopes,
+      expiresIn: identity.expiresIn,
+    });
+  } catch (error) {
+    if (error instanceof TwitchReauthorizationRequiredError) {
+      log("warn", "twitch_reauthorization_required", { message: error.message });
+      return;
+    }
+
+    log("warn", "twitch_authorization_check_failed", {
+      message: "Twitch could not be validated. Manual and smoke modes remain available.",
+      ...errorFields(error),
+    });
+  }
+}
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  await checkTwitchAuthorization();
   const server = new ArenaBridgeServer(config);
   let shutdownRequested = false;
 
